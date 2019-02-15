@@ -24,7 +24,7 @@
 │   └── various_utils.py
 ├── docs
 ├── scripts
-│	├── backtest_entrypoint.py
+│   ├── backtest_entrypoint.py
 │   └── trader_entrypoint.py
 ├── Exmples
 │	├── Simple_Examples
@@ -86,17 +86,3 @@ TA
 
 Example directory contains some trading strategies. 
 
-## Build Sphinx Document
-
-To build the sphinx document, run the command following.
-```bash
-$ ./tool_build_doc.sh
-```
-HTML output will be located on 'docs/build/html'.
-
-## Make Python Package.
-
-To make python package, run the command following.
-```bash
-$ ./tool_make_sdist.sh
-```
