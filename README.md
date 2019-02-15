@@ -1,9 +1,11 @@
 # Crypto-Currency Trading Framework
 
 ## How to Use
-'$ git clone {REPOSITORY}
+'''
+$ git clone {REPOSITORY}
 $ cd CATS-LAB
-$ python setup.py sdist'
+$ python setup.py sdist
+'''
 
 
 ## Package Structure
@@ -20,6 +22,7 @@ $ python setup.py sdist'
 │   ├── exchange
 │   │	├── base_exchange.py
 │   │	└── coinone.py
+'
 │   ├── objects
 │   │	├── context.py
 │   │	├── order.py
