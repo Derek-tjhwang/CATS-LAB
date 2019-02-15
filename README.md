@@ -22,7 +22,6 @@ $ python setup.py sdist
 │   ├── exchange
 │   │	├── base_exchange.py
 │   │	└── coinone.py
-'
 │   ├── objects
 │   │	├── context.py
 │   │	├── order.py
