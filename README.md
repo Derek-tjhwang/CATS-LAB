@@ -22,17 +22,7 @@
 │   ├── backtest.py
 │   ├── utils.py
 │   └── various_utils.py
-├── docs
-├── scripts
-│   ├── backtest_entrypoint.py
-│   └── trader_entrypoint.py
-├── Exmples
-│	├── Simple_Examples
-│	└── Combination_Examples
-├── setup.py
-├── source_it_to_set_private.sh
-├── tool_build_doc.sh  # build a sphinx document html.
-└── tool_make_sdist.sh  # make a python package distribution.
+└── setup.py
 ```
 
 ## Support TA
@@ -83,6 +73,3 @@ TA
 	└── Cumulative Return (CR)
 
 ```
-
-Example directory contains some trading strategies. 
-
