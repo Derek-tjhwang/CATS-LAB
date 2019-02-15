@@ -1,6 +1,9 @@
 # Crypto-Currency Trading Framework
 
-## How to install
+## How to Use
+'$ git clone {REPOSITORY}
+$ cd CATS-LAB
+$ python setup.py sdist'
 
 
 ## Package Structure
