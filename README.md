@@ -1,14 +1,32 @@
 # Crypto-Currency Trading Framework
 
+## How to Use
+```
+$ git clone {REPOSITORY}
+$ cd CATS-LAB
+$ python setup.py sdist
+```
+
+
 ## Package Structure
 ```txt
 .
 ├── coza
-│   ├── bot.py  # contains a bot context class.
-│   ├── config.py  
-│   ├── errors.py
-│   ├── history.py
-│   ├── logger.py
+│   ├── api
+│   │	├── exchange
+│   │	|   ├── base.py
+│   │	|   ├── coinone.py
+│   │	|   └── exception.py
+│   │	├── private
+│   │	└── public
+│   ├── exchange
+│   │	├── base_exchange.py
+│   │	└── coinone.py
+'
+│   ├── objects
+│   │	├── context.py
+│   │	├── order.py
+│   │	└── result.py
 │   ├── ta  # contains several technical analysis functions. 
 │   │   ├── momentum.py
 │   │   ├── others.py
@@ -18,21 +36,16 @@
 │   │   ├── volatility.py
 │   │   ├── volume.py
 │   │   └── wrapper.py
-│   ├── trade.py  # contains the main loop statement for trading.
+│   ├── algorithms.py
 │   ├── backtest.py
+│   ├── bot.py  
+│   ├── config.py  
+│   ├── errors.py
+│   ├── logger.py
+│   ├── settings.py
 │   ├── utils.py
 │   └── various_utils.py
-├── docs
-├── scripts
-│	├── backtest_entrypoint.py
-│   └── trader_entrypoint.py
-├── Exmples
-│	├── Simple_Examples
-│	└── Combination_Examples
-├── setup.py
-├── source_it_to_set_private.sh
-├── tool_build_doc.sh  # build a sphinx document html.
-└── tool_make_sdist.sh  # make a python package distribution.
+└── setup.py
 ```
 
 ## Support TA
@@ -82,21 +95,4 @@ TA
 	├── Daily Return (DR) 
 	└── Cumulative Return (CR)
 
-```
-
-Example directory contains some trading strategies. 
-
-## Build Sphinx Document
-
-To build the sphinx document, run the command following.
-```bash
-$ ./tool_build_doc.sh
-```
-HTML output will be located on 'docs/build/html'.
-
-## Make Python Package.
-
-To make python package, run the command following.
-```bash
-$ ./tool_make_sdist.sh
 ```
