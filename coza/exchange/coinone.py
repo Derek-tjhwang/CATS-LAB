@@ -56,6 +56,8 @@ class CoinoneTrade(BaseExchange):
 
 
     def init_dataframe(self):
+        # Todo
+        # updated_len
         until_date = {}
         time_now = datetime.now()
 
@@ -64,6 +66,10 @@ class CoinoneTrade(BaseExchange):
 
         for currency in self.currencies:
             for interval in self.intervals:
+                # Todo
+                # 2차
+                # Add Logging: Initialize된 Candle Data
+
                 df = CandleApi.get_df(
                     exchange=self.name, currency=currency, fiat=self.fiat,
                     interval=interval, until_date=until_date[interval])
@@ -193,7 +199,7 @@ class CoinoneTrade(BaseExchange):
                                             update_type=update_type, order_id=order_id, currency=currency,
                                             order_type='SELL', price=_o.get('price'), quantity=_o.get('qty'),
                                             use_balance= int(_o.get('qty') * _o.get('price')) - _o.get('fee'), avail=0,
-                                            balance=-round(_o.get('qty') , R_OFF))
+                                            balance=-round(_o.get('qty'), R_OFF))
 
                                     elif _o.get('type') == 'BUY':
                                         self._update_quantity(
@@ -245,11 +251,21 @@ class CoinoneTrade(BaseExchange):
             return False
 
         if order_re.get('order_id'):
+
+            # Todo
+            # 2차
+            # 1. Add Logger: Success Order
+            # 2. Order를 전송하기 전에
+            # 3. 어떤 가상화폐를 먼저 처리할 건지
+            # 4. BUY 먼저 할지 SELL 먼저 할지
+            # 5. order_result와 order가 일치하는지.
+
             order_id = order_re.get('order_id')
             sleep(0.04)
             stat_re = self.api.order_status(currency=order.currency, order_id=order_id)
 
             if stat_re.get('status', None) == 'filled':
+                update_type = 'ORDER_FILLED'
                 stat_re = {
                     'currency':  stat_re['info'].get('currency').lower(),
                     'price': int(float(stat_re['info'].get('price'))),
@@ -583,7 +599,7 @@ class CoinoneTrade(BaseExchange):
         self.balance[currency]['avail'] += avail
         self.balance[currency]['balance'] += balance
         self._round_off_balance()
-        print(f'[{datetime.now()} {update_type}], order_id: {order_id}, Currency: {currency}, '
+        print(f'[{datetime.now()}, {update_type}], order_id: {order_id}, Currency: {currency}, '
               f'OrderType: {order_type}, Fiat: {use_balance}, Avail: {avail}, Balance: {balance}')
         print(f'MY BALANCE: {self.balance}')
         if self.running_mode == 'LIVE':

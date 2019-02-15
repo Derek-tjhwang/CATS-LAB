@@ -109,21 +109,21 @@ class Result(object):
 
             for order in self.trade_history:
                 for _order in self.trade_history[order]['order_list']:
-                    if _order.order_type == 'BUY':
+                    if _order.order_type == 'BUY' and _order.currency in currency_list:
                         BUY_list['{}'.format(_order.currency)].append({'date': order , 'price': _order.price})
-                    else:
+                    elif _order.order_type == 'SELL' and _order.currency in currency_list:
                         SELL_list['{}'.format(_order.currency)].append({'date': order , 'price': _order.price})
 
             for i, currency in enumerate(currency_list):
-                if len(BUY_list['{}'.format(currency)]) != 0 and len(SELL_list['{}'.format(currency)]) !=0:
+                if len(BUY_list['{}'.format(currency)]) != 0:
                     BUY_df = pd.DataFrame(BUY_list['{}'.format(currency)])
-                    SELL_df = pd.DataFrame(SELL_list['{}'.format(currency)])
-
                     data.append(go.Scatter(x=BUY_df['date'],
                                            y=BUY_df['price'],
                                            mode='markers',
                                            name = '{} BUY-markers'.format(currency), 
                                            yaxis='y{}'.format(i+2)))
+                if len(SELL_list['{}'.format(currency)]) !=0:
+                    SELL_df = pd.DataFrame(SELL_list['{}'.format(currency)])
                     data.append(go.Scatter(x=SELL_df['date'],
                                            y=SELL_df['price'],
                                            mode='markers',

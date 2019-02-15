@@ -67,7 +67,6 @@ class BotContext(Context):
                 currency_list=trade_info.get('currency'), interval_list=trade_info.get('interval'),
                 fiat=trade_info.get('fiat'), running_mode=self.running_mode)
         else:
-
             print("지원하지 않는 거래소 입니다.")
             return None
 
@@ -98,7 +97,7 @@ class BotContext(Context):
         if self.running_mode == 'LIVE':
             data = dict(
                 use_balance= estimated,
-                profit_rate= round(estimated - self.init_budget,4),
+                profit_rate= round(estimated - self.init_budget / self.init_budget,4) * 100,
                 create_time= int(datetime.now().timestamp())
             )
             TradeApi.bot_profits(data=data)
