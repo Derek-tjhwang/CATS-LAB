@@ -4,11 +4,20 @@
 ```txt
 .
 ├── coza
-│   ├── bot.py  # contains a bot context class.
-│   ├── config.py  
-│   ├── errors.py
-│   ├── history.py
-│   ├── logger.py
+│   ├── api
+│   │	├── exchange
+│   │	|   ├── base.py
+│   │	|   ├── coinone.py
+│   │	|   └── exception.py
+│   │	├── private
+│   │	└── public
+│   ├── exchange
+│   │	├── base_exchange.py
+│   │	└── coinone.py
+│   ├── objects
+│   │	├── context.py
+│   │	├── order.py
+│   │	└── result.py
 │   ├── ta  # contains several technical analysis functions. 
 │   │   ├── momentum.py
 │   │   ├── others.py
@@ -18,8 +27,13 @@
 │   │   ├── volatility.py
 │   │   ├── volume.py
 │   │   └── wrapper.py
-│   ├── trade.py  # contains the main loop statement for trading.
+│   ├── algorithms.py
 │   ├── backtest.py
+│   ├── bot.py  
+│   ├── config.py  
+│   ├── errors.py
+│   ├── logger.py
+│   ├── settings.py
 │   ├── utils.py
 │   └── various_utils.py
 └── setup.py
