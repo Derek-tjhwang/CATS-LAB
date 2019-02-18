@@ -13,7 +13,7 @@ KEY_DEV_SECRET = 'DEV_SECRET'
 # Bot environment variables
 
 env = os.environ
-RUNNING_TYPE = 'DEV'
+RUNNING_TYPE = 'SERVICE'
 LOG_LEVEL = 'DEBUG'
 
 COZA_HOST = None

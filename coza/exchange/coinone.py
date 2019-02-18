@@ -660,7 +660,7 @@ class CoinoneTrade(BaseExchange):
             if k == 'fiat':
                 continue
             else:
-                price = self.api.get_orderbook(currency=k, fiat=self.fiat, limit=30)['bids'][0]
+                price = self.api.get_orderbook(currency=k, fiat=self.fiat, limit=30)['bids'][0]['price']
                 self._send_order(
                     Order(
                         currency=k, order_type='SELL', fiat=self.fiat, price=price,
