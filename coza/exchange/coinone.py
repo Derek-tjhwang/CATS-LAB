@@ -266,6 +266,7 @@ class CoinoneTrade(BaseExchange):
             stat_re = self.api.order_status(currency=order.currency, order_id=order_id)
 
             if stat_re.get('status', None) == 'filled':
+                update_type = 'ORDER_FILLED'
                 stat_re = {
                     'currency':  stat_re['info'].get('currency').lower(),
                     'price': int(float(stat_re['info'].get('price'))),

@@ -95,7 +95,7 @@ class BotContext(Context):
         if self.running_mode == 'LIVE':
             data = dict(
                 use_balance= estimated,
-                profit_rate= round(estimated - self.init_budget / self.init_budget,4) * 100,
+                profit_rate= round((estimated - self.init_budget) / self.init_budget,4) * 100,
                 create_time= int(datetime.now().timestamp())
             )
             TradeApi.bot_profits(data=data)
