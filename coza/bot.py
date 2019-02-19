@@ -31,10 +31,7 @@ class BotContext(Context):
             exchange_key = TradeApi.get_user_excAcnt(self.bot_info.get('exchange_account').get('uuid'))
             self.api_key = exchange_key.get('api_key')
             self.secret_key = exchange_key.get('secret_key')
-
-            if not hasattr(self, 'initialize'):
-                self.initialize, self.run_strategy, self.make_orders = load_functions(self._bot_code)
-
+            self.initialize, self.run_strategy, self.make_orders = load_functions(self._bot_code)
             self.initialize(self)
             self.exchange = self.bot_info.get('exchange')
             self.init_budget = self.bot_info.get('init_balance')
@@ -67,6 +64,7 @@ class BotContext(Context):
                 currency_list=trade_info.get('currency'), interval_list=trade_info.get('interval'),
                 fiat=trade_info.get('fiat'), running_mode=self.running_mode)
         else:
+
             print("지원하지 않는 거래소 입니다.")
             return None
 

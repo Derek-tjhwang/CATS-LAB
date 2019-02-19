@@ -8,11 +8,9 @@ class Context(ABC):
         self.running_mode = running_mode
         self.wait_time = dict()
         self.exchanges = dict()
-
-        if callable(initialize) and callable(run_strategy) and callable(make_orders):
-            self.initialize = initialize
-            self.run_strategy = run_strategy
-            self.make_orders = make_orders
+        self.initialize = initialize
+        self.run_strategy = run_strategy
+        self.make_orders = make_orders
 
     def set_waiting_time(self, set_time):
         self.wait_time = set_time

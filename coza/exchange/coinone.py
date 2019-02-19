@@ -199,7 +199,7 @@ class CoinoneTrade(BaseExchange):
                                             update_type=update_type, order_id=order_id, currency=currency,
                                             order_type='SELL', price=_o.get('price'), quantity=_o.get('qty'),
                                             use_balance= int(_o.get('qty') * _o.get('price')) - _o.get('fee'), avail=0,
-                                            balance=-round(_o.get('qty'), R_OFF))
+                                            balance=-round(_o.get('qty') , R_OFF))
 
                                     elif _o.get('type') == 'BUY':
                                         self._update_quantity(
@@ -218,6 +218,7 @@ class CoinoneTrade(BaseExchange):
 
                                     # Todo
                                     # 체결 정보 보내기.
+
                         for pop_i in pop_q:
                             self.order_list[currency].pop(pop_i)
                     else:
@@ -265,7 +266,6 @@ class CoinoneTrade(BaseExchange):
             stat_re = self.api.order_status(currency=order.currency, order_id=order_id)
 
             if stat_re.get('status', None) == 'filled':
-                update_type = 'ORDER_FILLED'
                 stat_re = {
                     'currency':  stat_re['info'].get('currency').lower(),
                     'price': int(float(stat_re['info'].get('price'))),
@@ -599,7 +599,7 @@ class CoinoneTrade(BaseExchange):
         self.balance[currency]['avail'] += avail
         self.balance[currency]['balance'] += balance
         self._round_off_balance()
-        print(f'[{datetime.now()}, {update_type}], order_id: {order_id}, Currency: {currency}, '
+        print(f'[{datetime.now()} {update_type}], order_id: {order_id}, Currency: {currency}, '
               f'OrderType: {order_type}, Fiat: {use_balance}, Avail: {avail}, Balance: {balance}')
         print(f'MY BALANCE: {self.balance}')
         if self.running_mode == 'LIVE':
