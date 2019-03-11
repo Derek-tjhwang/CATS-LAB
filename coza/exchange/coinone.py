@@ -1,9 +1,12 @@
 from .base_exchange import BaseExchange
 from datetime import datetime, timedelta
 from coza.api.exchange import CoinoneAPIWrapper
-from coza.api import CandleApi, TradeApi
+from coza.settings import input_value_validation
+from coza.api import CandleApi, ExchangeApi, TradeApi
+from coza.errors import InputValueValidException
 from coza.objects import Order
-from coza.utils import truncate
+from coza.utils import truncate, now, KST
+from coza.logger import logger
 from copy import deepcopy
 from collections import defaultdict
 from time import sleep
@@ -13,8 +16,9 @@ import numpy as np
 import math
 import os
 
+
 NAME = "coinone"
-MINUMUM_CURRENCY_QTY = {
+MINIMUM_CURRENCY_QTY = {
     'btc': 0.0001,
     'eth': 0.001,
     'xrp': 1,
@@ -32,6 +36,12 @@ MINUMUM_CURRENCY_QTY = {
     'knc': 1,
     'zrx': 1
 }
+MINIMUM_TRADE_PRICE = 500
+CURRENCY_LIST = {'bch', 'btc', 'btg', 'data', 'eos', 'etc',
+                 'eth', 'iota', 'knc', 'ltc', 'omg', 'qtum',
+                 'xrp', 'xtz', 'zil', 'zrx'}
+INTERVAL_LIST = {1, 3, 5, 15, 30, 60, 120, 240, 1440}
+FIAT = {'krw',}
 FEE_RATE = 0.001
 SLIPPAGE_RATE = 0.002
 R_OFF = 7
@@ -41,11 +51,27 @@ class CoinoneTrade(BaseExchange):
     name=NAME
     fee_rate=FEE_RATE
 
-    def __init__(self, api_key, secret_key, init_budget, currency_list, interval_list, fiat, running_mode='LIVE'):
+
+    def __init__(self, api_key, secret_key, init_budget, currency_list, interval_list,
+                 fiat, running_mode='LIVE', using_api='EXCHANGE'):
+        c_func = 'init'
+        if input_value_validation(c_func=c_func, type_='S', param_='api_key', value_=api_key):
+            self.api_key = api_key
+        if input_value_validation(c_func=c_func, type_='S', param_='secret_key', value_=secret_key):
+            self.secret_key = secret_key
+        if input_value_validation(c_func=c_func,type_='C', param_='running_mode', value_=running_mode):
+            self.running_mode = running_mode
+        input_value_validation(c_func=c_func, type_='N', param_='init_budget', value_=init_budget)
+        if set(currency_list) != set(currency_list) & CURRENCY_LIST:
+            raise InputValueValidException(c_func=c_func, param_='currency_list', value_=currency_list)
+        if set(interval_list) != set(interval_list) & INTERVAL_LIST:
+            raise InputValueValidException(c_func=c_func, param_='interval_list', value_=interval_list)
+        if fiat not in FIAT:
+            raise InputValueValidException(c_func=c_func, param_='fiat', value_=fiat)
+        if input_value_validation(c_func=c_func, type_='C', param_='using_api', value_=using_api):
+            self.using_api = using_api
+
         super().__init__(init_budget=init_budget, currency_list=currency_list, interval_list=interval_list, fiat=fiat)
-        self.api_key = api_key
-        self.secret_key = secret_key
-        self.running_mode = running_mode
         self.init_balance()
         self.data = dict()
         self.orders = defaultdict(list)
@@ -58,8 +84,10 @@ class CoinoneTrade(BaseExchange):
     def init_dataframe(self):
         # Todo
         # updated_len
+        logger.debug('Initializing dataframe...')
+        
         until_date = {}
-        time_now = datetime.now()
+        time_now = now(exchange=NAME, rounding_seconds=True)
 
         for interval in self.intervals:
             until_date[interval] = time_now - timedelta(minutes=interval)
@@ -69,20 +97,25 @@ class CoinoneTrade(BaseExchange):
                 # Todo
                 # 2차
                 # Add Logging: Initialize된 Candle Data
-
                 df = CandleApi.get_df(
                     exchange=self.name, currency=currency, fiat=self.fiat,
                     interval=interval, until_date=until_date[interval])
-                df['datetime'] = [datetime.fromtimestamp(t) for t in df['timestamp']]
-                df.set_index(keys='datetime', inplace=True)
-                self.data[f'{currency}_{interval}'] = df
-                self.is_update[f'{currency}_{interval}'] = False
-                self.updated_len[f'{currency}_{interval}'] = len(self.data[f'{currency}_{interval}'])
+                if df is not None:
+                    df['datetime'] = [datetime.fromtimestamp(t).astimezone(KST) for t in df['timestamp']]
+                    df.set_index(keys='datetime', inplace=True)
+                    self.data[f'{currency}_{interval}'] = df
+                    self.is_update[f'{currency}_{interval}'] = False
+                    self.updated_len[f'{currency}_{interval}'] = len(self.data[f'{currency}_{interval}'])
 
+                    logger.debug(f'Prepared candle data {currency}_{interval}')
+                    logger.info(f'length of {currency}_{interval} : {len(df)}')
+                else:
+                    logger.info(f'init_dataframe Failed {currency}_{interval}')
+        
 
     def update_dataframe(self):
         decay_time = 0.0
-        cur_date = datetime.now().replace(second=0, microsecond=0)
+        cur_date = now(exchange=NAME, rounding_seconds=True)
 
         while decay_time > -0.8:
             sleep_time = round(0.3 * np.random.rand() + 0.7, 3) + self.delay_time - decay_time
@@ -103,26 +136,23 @@ class CoinoneTrade(BaseExchange):
                     update_len = len(df) - 1
 
                     if update_len < 1:
-                        print(update_len)
-                        print(df)
-                        print(self.data[candle].tail(5))
-                        print(f'Get Candle Failed {self.data[candle].index[-1]}')
-                        print(f'Time Now : {datetime.now()}')
-                        print(f'Sleep Time is : {sleep_time}')
-
+                        logger.debug(self.data[candle].tail(3))
+                        logger.debug(f'Failed to update dataframe of {candle} at {self.data[candle].index[-1]}')
+                        logger.debug(f'Sleep Time : {sleep_time}')
                         self.updated_len[candle] = 0
                         self.delay_time += 0.1
                         decay_time -= 0.2
                         break
 
                     else:
-                        df['datetime'] = [datetime.fromtimestamp(t) for t in df['timestamp']]
+                        df['datetime'] = [datetime.fromtimestamp(t).astimezone(KST) for t in df['timestamp']]
                         df.set_index(keys='datetime', inplace=True)
                         df.drop(df.index[0], inplace=True)
                         self.updated_len[candle] = update_len
                         self.data[candle].drop(self.data[candle].index[range(self.updated_len[candle])], inplace=True)
                         self.data[candle] = self.data[candle].append(df)
-
+                        
+                        logger.debug(f'Completed updating dataframe of {candle} at {self.data[candle].index[-1]}')
                 else:
                     self.updated_len[candle] = 0
 
@@ -154,7 +184,10 @@ class CoinoneTrade(BaseExchange):
         if self.order_list.keys():
             for currency in self.order_list.keys():
                 if self.order_list[currency].keys():
-                    c_order = self.api.order_complete(currency=currency)
+                    if self.using_api == 'EXCHANGE':
+                        c_order = self.api.order_complete(currency=currency)
+                    elif self.using_api == 'CATSLAB':
+                        c_order = TradeApi.order_complete(currency=currency)
                     """ Order_list / key= order_id
                         'currency': stat_re.get('currency'),
                         'price': stat_re.get('price'),
@@ -172,12 +205,12 @@ class CoinoneTrade(BaseExchange):
                         order_type, use_balance, avail, balance
                     """
 
-                    if c_order.get('result') == 'success':
+                    if c_order.get('result') == 'success' or c_order.get('result'):
                         pop_q = set()
                         for order_id in self.order_list[currency].keys():
                             recent_timestamp = self.order_list[currency][order_id].get('timestamp')[-1]
-
-                            for _order in c_order.get('info', []):
+                            c_order_list = c_order.get('info') if 'info' in c_order else c_order.get('completeOrders')
+                            for _order in c_order_list:
                                 if recent_timestamp > int(_order.get('timestamp')):
                                     break
 
@@ -186,20 +219,22 @@ class CoinoneTrade(BaseExchange):
                                     _o = {
                                         'fee': float(_order.get('fee')),
                                         'order_id': _order.get('orderId').lower(),
-                                        'price': int(_order.get('price')),
+                                        'price': int(float(_order.get('price'))),
                                         'qty': float(_order.get('qty')),
                                         'timestamp': int(_order.get('timestamp')),
                                         'type': 'SELL' if _order.get('type') == 'ask' else 'BUY'
                                     }
                                     self.order_list[currency][order_id]['fee'] -= _o.get('fee')
                                     self.order_list[currency][order_id]['remain_qty'] -= _o.get('qty')
+                                    self.order_list[currency][order_id]['fee'] = round(self.order_list[currency][order_id]['fee'], R_OFF)
+                                    self.order_list[currency][order_id]['remain_qty'] = round(self.order_list[currency][order_id]['remain_qty'], R_OFF)
 
                                     if _o.get('type') == 'SELL':
                                         self._update_quantity(
                                             update_type=update_type, order_id=order_id, currency=currency,
                                             order_type='SELL', price=_o.get('price'), quantity=_o.get('qty'),
-                                            use_balance= int(_o.get('qty') * _o.get('price')) - _o.get('fee'), avail=0,
-                                            balance=-round(_o.get('qty') , R_OFF))
+                                            use_balance= round((_o.get('qty') * _o.get('price')) - _o.get('fee'), R_OFF), 
+                                            avail=0, balance=-round(_o.get('qty') , R_OFF))
 
                                     elif _o.get('type') == 'BUY':
                                         self._update_quantity(
@@ -234,25 +269,41 @@ class CoinoneTrade(BaseExchange):
 
         if order.order_type == 'BUY':
             if self.balance['fiat'] - order.price * order.quantity < 0:
+                logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Lack of Balance\' : {order}')
                 return dict(result=False, msg='Bigger than fiat')
-            elif order.quantity < MINUMUM_CURRENCY_QTY[order.currency]:
+            elif order.quantity * order.price < MINIMUM_TRADE_PRICE:
+                logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Minimum Trade Price\' : {order}')
+                return dict(result=False, msg='Minimum order price is 500 KRW')
+            elif order.quantity < MINIMUM_CURRENCY_QTY[order.currency]:
+                logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Minimum Currency Quantity\' : {order}')
                 return dict(result=False, msg='Lower than minimum quantity')
             else:
-                order_re = self.api.order_buy(
-                    currency=order.currency, fiat=self.fiat, price=order.price, quantity=order.quantity)
+                if self.using_api == 'EXCHANGE':
+                    order_re = self.api.order_buy(
+                        currency=order.currency, fiat=self.fiat, price=order.price, quantity=order.quantity)
+                elif self.using_api == 'CATSLAB':
+                    order_re = TradeApi.order(order)
         elif order.order_type == 'SELL':
             if self.balance[order.currency]['avail'] - order.quantity < 0:
+                logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Lack of Balance\' : {order}')
                 return dict(result=False, msg='')
-            elif order.quantity < MINUMUM_CURRENCY_QTY[order.currency]:
+            elif order.quantity * order.price < MINIMUM_TRADE_PRICE:
+                logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Minimum Trade Price\' : {order}')
+                return dict(result=False, msg='Minimum order price is 500 KRW')
+            elif order.quantity < MINIMUM_CURRENCY_QTY[order.currency]:
+                logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Minimum Currency Quantity\' : {order}')
                 return dict(result=False, msg='')
             else:
-                order_re = self.api.order_sell(
-                    currency=order.currency, fiat=self.fiat, price=order.price, quantity=order.quantity)
+                if self.using_api == 'EXCHANGE':
+                    order_re = self.api.order_sell(
+                        currency=order.currency, fiat=self.fiat, price=order.price, quantity=order.quantity)
+                elif self.using_api == 'CATSLAB':
+                    order_re = TradeApi.order(order)
         else:
             return False
 
         if order_re.get('order_id'):
-
+            logger.debug(f'[ORDER] Successfully sended order : {order}')
             # Todo
             # 2차
             # 1. Add Logger: Success Order
@@ -263,7 +314,10 @@ class CoinoneTrade(BaseExchange):
 
             order_id = order_re.get('order_id')
             sleep(0.04)
-            stat_re = self.api.order_status(currency=order.currency, order_id=order_id)
+            if self.using_api == 'EXCHANGE':
+                stat_re = self.api.order_status(currency=order.currency, order_id=order_id)
+            elif self.using_api == 'CATSLAB':
+                stat_re = TradeApi.order_status(currency=order.currency, order_id=order_id)
 
             if stat_re.get('status', None) == 'filled':
                 update_type = 'ORDER_FILLED'
@@ -279,16 +333,17 @@ class CoinoneTrade(BaseExchange):
                 if order.order_type == 'SELL':
                     self._update_quantity(
                         update_type=update_type, order_id=order_re.get('order_id'), currency=order.currency,
-                        use_balance=int(stat_re.get('qty') * stat_re.get('price')) - stat_re.get('fee'),
+                        use_balance=round((stat_re.get('qty') * stat_re.get('price')) - stat_re.get('fee'), R_OFF),
                         price=stat_re.get('price'), quantity=stat_re.get('qty'), order_type=order.order_type,
                         avail=-round(stat_re.get('qty'), R_OFF), balance=-round(stat_re.get('qty'), R_OFF))
 
                 elif order.order_type == 'BUY':
                     self._update_quantity(
                         update_type=update_type, order_id=order_re.get('order_id'), currency=order.currency,
-                        use_balance=-math.ceil(stat_re.get('price') * stat_re.get('qty')),
+                        use_balance=-round(stat_re.get('price') * stat_re.get('qty'), R_OFF),
                         price=stat_re.get('price'), quantity=stat_re.get('qty'), order_type=order.order_type,
-                        avail= stat_re.get('qty') - stat_re.get('fee'), balance=stat_re.get('qty') - stat_re.get('fee'))
+                        avail= round(stat_re.get('qty') - stat_re.get('fee'), R_OFF),
+                        balance=round(stat_re.get('qty') - stat_re.get('fee'), R_OFF))
 
             elif stat_re.get('status', None) == 'live':
                 stat_re = {
@@ -319,20 +374,23 @@ class CoinoneTrade(BaseExchange):
                 elif order.order_type == 'BUY':
                     self._update_quantity(
                         update_type=update_type, order_id=order_re.get('order_id'), currency=order.currency,
-                        use_balance=-math.ceil(stat_re.get('price') * stat_re.get('qty')), order_type=order.order_type,
+                        use_balance=-round(stat_re.get('price') * stat_re.get('qty'), R_OFF), order_type=order.order_type,
                         price=stat_re.get('price'), quantity=stat_re.get('qty'),
                         avail=0, balance=round(stat_re.get('qty') * (1 - FEE_RATE), R_OFF))
             else:
-                return dict(result=False, msg="Failed Send Order")
+                logger.debug(f'[ORDER_FAILED] Failed to send order : {order}')
+                return dict(result=False, msg="Failed To Send Order")
 
-            return dict(result=True, msg="Order Complete")
+            return dict(result=True, msg="Order Completed")
 
         else:
-            return dict(result=False, msg="Failed Send Order")
+            logger.debug(f'[ORDER_FAILED] Failed to send order : {order}')
+            logger.info(f'order_re : {order_re}')
+            return dict(result=False, msg="Failed To Send Order")
 
 
     def send_orders(self):
-        time_now = datetime.now()
+        time_now = now(exchange=NAME)
 
         if self.orders.keys():
             pop_q = set()
@@ -347,15 +405,26 @@ class CoinoneTrade(BaseExchange):
 
 
     def set_order(self, o, t=None):
+        c_func='set_order'
+
         if isinstance(t, type(None)):
-            return self._send_order(order=o, _datetime=datetime.now())
+            if isinstance(o, Order):
+                return self._send_order(order=o, _datetime=now(exchange=NAME))
+            else:
+                raise InputValueValidException(c_func=c_func, param_='o', value_=o)
+        elif isinstance(t, datetime):
+            if isinstance(o, Order):
+                self.orders[t].append(o)
+            else:
+                raise InputValueValidException(c_func=c_func, param_='o', value_=o)
         else:
-            self.orders[t].append(o)
+            raise InputValueValidException(c_func=c_func, param_='t', value_=t)
 
 
     def _send_signal(self, signal_type, trade_type, currency, price, quantity, is_safety=False, error_message=None):
         eval_balance=int(price * quantity)
-        profit= round((self.calc_estimated() - self.init_budget) / self.init_budget, 4) * 100
+        self.calc_estimated()
+        profit= self.earning_rate * 100
         data = dict(
             signal_type=signal_type,
             trade_type=trade_type,
@@ -371,59 +440,31 @@ class CoinoneTrade(BaseExchange):
 
 
     def _send_cancel(self, currency, order_id, qty=None):
-        """
-        ### order format
-        self.order_list['{}'.format(order.currency)]['{}'.format(order_re.get('order_id'))] = {
-                'currency': order.currency,
-                'price': order.price,
-                'quantity': order.quantuty,
-                'order_type': order.order_type,
-                'fiat': order.fiat
-            }
-        
-        ### order status result
-        {'info': {'currency': 'ZIL',
-          'fee': '0',
-          'feeRate': '0.001',
-          'orderId': '84F42097-D4A7-4984-9F40-8C500CEAA848',
-          'price': '24',
-          'qty': '1.0000',
-          'remainQty': '0.5000',
-          'timestamp': '1547711535',
-          'type': 'bid'},
-         'status': 'live'}
-         
-         {'info': {'currency': 'ZIL',
-          'fee': '0.00120000',
-          'feeRate': '0.001',
-          'orderId': 'D9776155-ED79-403B-B4DA-9F8E13C591FE',
-          'price': '25.0',
-          'qty': '1.2000',
-          'remainQty': '0',
-          'timestamp': '1547712831',
-          'type': 'bid'},
-         'status': 'filled'}
-         
-        """
         update_type = "CANCEL"
         cancel_result = False
         update_result = False
-        
-        # 주문 취소를 날리기 전에 해당 주문의 상태를 확인
+
         order_stat = self.api.order_status(currency=currency, order_id=order_id)
-        
+
         # 해당 주문이 이미 취소된 경우
         # 주문이 없는 경우 order_cancel 요청 시 어떻게 반환되는지 확인 필요
-        if order_stat == 'Order id is not exist':
-            print("해당 order ID는 존재하지 않습니다.")
-            return True
-            
-        order_c = self.order_list[currency][order_id]    
         
-        # 해당 주문이 체결된 경우 balance update 
+        # Todo
+        # status key값으로 통일하여 order_id가 존재하지 않는 경우로 처리
+        if order_stat == 'Order id is not exist':
+            logger.debug('[CANCEL_FAILED] 해당 order_id는 존재하지 않습니다.')
+            return True
+        
+        order_c = self.order_list[currency][order_id]
+        remainQty = truncate(round(float(order_stat['info']['remainQty']), R_OFF), 4)
+        
+        # 해당 주문이 체결된 경우 balance update
         # 얼마나 체결 됬는지 정보 필요 (order_list에 저장된 정보 quantity는 이전까지의 remain quantity)
         if order_stat['status'] == 'filled':
-            # BUY 
+            logger.debug(f'[ORDER_FILLED] Already filled order {order_id} : {self.order_list[currency][order_id]}')
+            
+            update_type = "FILLED"
+            # BUY
             if order_c['order_type'] == 'BUY':
                 update_result = self._update_quantity(
                     update_type=update_type, order_id=order_id, use_balance=0, currency=currency,
@@ -431,76 +472,91 @@ class CoinoneTrade(BaseExchange):
                     avail=round(order_c['remain_qty']*(1-FEE_RATE), R_OFF), balance=0)
                 ### Todo
                 # update_result 예외 처리
-                
+
             # SELL
             elif order_c['order_type'] == 'SELL':
-                use_balance = int(order_c['remain_qty']*order_c['price']) - math.ceil(int(order_c['remain_qty']*order_c['price'])*FEE_RATE)
+                use_balance = round((order_c['remain_qty']*order_c['price'])*(1-FEE_RATE), R_OFF)
                 update_result = self._update_quantity(
                     update_type=update_type, order_id=order_id, use_balance=use_balance, currency=currency,
                     order_type=order_c['order_type'], price=order_c['price'], quantity=order_c['quantity'],
                     avail=0, balance=-round(order_c['remain_qty'], R_OFF))
-                
+
                 ### Todo
                 # update_result 예외 처리
-            
+
             return True
-        
-        
+
+
         # 해당 주문이 미체결 상태인 경우
         elif order_stat['status'] == 'live':
+            logger.debug(f'[ORDER_LIVE] Still live order {order_id} : {order_c}')
+            
             # 입력 받은 quantity가 없는 경우 remain quantity 이용
             if qty is None:
-                quantity_c = truncate(float(order_stat['info']['remainQty']), 4)
-                
+                quantity_c = remainQty
+
             # 입력 받은 quantity만큼 부분취소
             else:
-                if qty < float(order_stat['info']['remainQty']):
-                    quantity_c = truncate(qty, 4)
-                ### Todo
-                # 입력 받은 quantity가 remainQty 보다 많은 경우
+                if qty < remainQty:
+                    quantity_c = truncate(round(qty, R_OFF), 4)
+                    if (remainQty - quantity_c) * order_c['price'] < MINIMUM_TRADE_PRICE:
+                        logger.debug(f'[ORDER_CANCEL_FAILED] Failed to cancel order because of \'Minimum Trade Price\' {order_id} : {order_c}')
+                        return False
                 else:
-                    quantity_c = truncate(float(order_stat['info']['remainQty']), 4)
-            
+                    quantity_c = remainQty
+
             # 주문 취소 api 요청
             cancel_result = self.api.order_cancel(currency=currency, order_id=order_id, order_type=order_c['order_type'],
                                                   fiat='krw', price=order_c['price'], quantity=quantity_c)
-            
-            # 주문 취소에 성공한 경우 balance update
+
+            # Todo
+            # error 메시지를 result key값으로 통일하여 처리하기
+            # order_id가 없는 경우 order id is not exist
+            # order_id 입력형식을 잘못 입력한 경우 Parameter error
             if cancel_result['result'] == 'success':
+                logger.debug(f'[ORDER_CANCELED] Successfully canceled order : {order_c}')
+                logger.info(f'Canceled quantity : {quantity_c} out of {remainQty}')
+                ### canceled quantity 
                 
                 # update balance
                 # BUY
                 if order_c['order_type'] == 'BUY':
-                    price = int(order_stat['info']['price'])
-                    use_balance = math.ceil(quantity_c * price)
+                    price = int(float(order_stat['info']['price']))
+                    use_balance = round(quantity_c * price, R_OFF)
                     update_result = self._update_quantity(
                         update_type=update_type, order_id=order_id, use_balance=use_balance, currency=currency,
                         order_type=order_c['order_type'], price=order_c['price'], quantity=order_c['quantity'],
                         avail=0, balance=-round(quantity_c * (1-FEE_RATE), R_OFF))
-                    
+
                     ### Todo
                     # update_result 예외 처리
-                    
+
                 # SELL
                 elif order_c['order_type'] == 'SELL':
                     update_result = self._update_quantity(
                         update_type=update_type, order_id=order_id, use_balance=0, currency=currency,
                         order_type=order_c['order_type'], price=order_c['price'], quantity=order_c['quantity'],
                         avail=round(quantity_c, R_OFF), balance=0)
-                    
+
                     ### Todo
                     # update_result 예외 처리
-                
+
                 # 전체가 취소된 경우 (list에서 pop)
-                if qty is None or qty >= float(order_stat['info']['remainQty']):
+                if qty is None or qty >= remainQty:
                     return True
                 # 부분취소인 경우 False를 반환 (list에서 pop하지 않도록)
-                elif qty < float(order_stat['info']['remainQty']):
+                elif qty < remainQty:
+                    self.order_list[currency][order_id]['fee'] -= round(quantity_c * FEE_RATE, R_OFF)
+                    self.order_list[currency][order_id]['fee'] = round(self.order_list[currency][order_id]['fee'],R_OFF)
                     self.order_list[currency][order_id]['remain_qty'] -= qty
+                    self.order_list[currency][order_id]['remain_qty'] = round(self.order_list[currency][order_id]['remain_qty'], R_OFF)
                     return False
-                
+
             # 주문 취소에 실패한 경우 result로 어떻게 반환되는지 확인 필요
             else:
+                # logger 추가
+                logger.debug(f'[ORDER_CANCEL_FAILED] Failed to cancel order {order_id} : {order_c}')
+                
                 ### Todo
                 # 주문 취소에 실패하는 경우 case 나누어서 처리 필요
                 # 1. 주문 취소 시 전체 또는 부분 체결이 된 경우
@@ -508,78 +564,70 @@ class CoinoneTrade(BaseExchange):
                 
                 # 다시 status를 조회하여 확인 필요
                 return False
-        
+
 
     def set_cancel(self, currency=None, order_id=None, qty=None):
+        if currency not in CURRENCY_LIST and currency is not None:
+            raise InputValueValidException(c_func='set_cancel', param_='currency', value_=currency)
+
         if qty is None:
-            # 입력 받은 quantity가 없는 경우
             if order_id is None and currency is None:
-                # 현재 주문 전체 취소
-                print("cancel #1")
-                
+                logger.debug('Canceling all orders which are not filled...')
+
                 for _currency in self.currencies:
                     if self.order_list[_currency].keys():
+                        logger.info(f'order_list to cancel : {self.order_list[_currency]}')
                         pop_q = set()
-                        print(self.order_list[_currency])
                         for _order_id in self.order_list[_currency].keys():
+                            logger.debug(f'Canceling order {_order_id} : {self.order_list[_currency][_order_id]}')
                             if self._send_cancel(currency=_currency, order_id=_order_id):
                                 pop_q.add(_order_id)
-                                
+
                         for item in pop_q:
                             self.order_list[_currency].pop(item)
-                            print("{} 주문이 취소 되었습니다.")
-                    else:
-                        print('해당 거래소에 {}에 대한 주문이 없습니다.'.format(_currency))
-                        continue
-                            
+
             elif order_id is None:
-                # 특정 currency의 주문 전체 취소
-                print("cancel #2")
-                      
+                logger.debug(f'Canceling all orders of {currency}...')
+                logger.info(f'order_list to cancel : {self.order_list[currency]}')
+
                 if self.order_list[currency].keys():
                     pop_q = set()
-                    print(self.order_list[currency])
                     for _order_id in self.order_list[currency].keys():
+                        logger.info(f'Canceling order {_order_id} : {self.order_list[currency][_order_id]}')
                         if self._send_cancel(currency=currency, order_id=_order_id):
                             pop_q.add(_order_id)
-                                
+
                     for item in pop_q:
                         self.order_list[currency].pop(item)
-                      
                 else:
-                    print("입력하신 {}에 대한 주문이 없습니다.".format(currency))
+                    logger.debug(f'입력하신 {currency}에 대한 주문이 없습니다.')
 
             elif order_id is not None and currency is None:
-                print("currency를 함께 입력해야 합니다.")
-                
+                logger.debug('currency를 함께 입력해야 합니다.')
             else:
-                # 특정 order_id의 주문 취소
-                print("cancel #3")
-                
+                logger.debug(f'Canceling order {order_id}...')
                 if order_id in self.order_list[currency].keys():
+                    logger.info(f'order to cancel : {self.order_list[currency][order_id]}')
                     if self._send_cancel(currency=currency, order_id=order_id):
                         self.order_list[currency].pop(order_id)
-                        
                 else:
-                    print("입력하신 order ID가 존재하지 않습니다.")
-                        
-        # 입력 받은 quantity만큼 부분 취소
+                    logger.debug(f'입력하신 order_id {order_id}가 존재하지 않습니다.')
+
         else:
             qty = truncate(qty, 4)
-            
+
             if currency is None or order_id is None:
-                print("currency와 order ID를 함께 입력해야 합니다.")
-                
+                logger.debug('currency와 order_id를 함께 입력해야 합니다.')
+
             else:
-                print("cancel #4")
-                
+                logger.debug(f'Canceling order {order_id} with quantity {qty}...')
                 if order_id in self.order_list[currency].keys():
+                    logger.info(f'order to cancel : {self.order_list[currency][order_id]}')
                     if self._send_cancel(currency=currency, order_id=order_id, qty=qty):
                         self.order_list[currency].pop(order_id)
-                
                 else:
-                    print("입력하신 order ID가 존재하지 않습니다.")
-            
+                    logger.debug(f'입력하신 order_id {order_id}가 존재하지 않습니다.')
+
 
     def get_balance(self):
         return self.balance
@@ -594,15 +642,16 @@ class CoinoneTrade(BaseExchange):
         return self.orders
 
 
-    def _update_quantity(self, update_type, order_id, currency, price, quantity,
-                         order_type, use_balance, avail, balance):
+    def _update_quantity(self, update_type, order_id, currency, price, quantity, order_type, use_balance, avail, balance):
         self.balance['fiat'] += use_balance
         self.balance[currency]['avail'] += avail
         self.balance[currency]['balance'] += balance
         self._round_off_balance()
-        print(f'[{datetime.now()} {update_type}], order_id: {order_id}, Currency: {currency}, '
+
+        logger.info(f'[{now(exchange=NAME)} {update_type}], order_id: {order_id}, Currency: {currency}, '
               f'OrderType: {order_type}, Fiat: {use_balance}, Avail: {avail}, Balance: {balance}')
-        print(f'MY BALANCE: {self.balance}')
+        logger.info(f'MY BALANCE: {self.balance}')
+        
         if self.running_mode == 'LIVE':
             data = {
                 'use_balance': use_balance,
@@ -624,10 +673,11 @@ class CoinoneTrade(BaseExchange):
 
 
     def get_time(self):
-        return datetime.now()
-    
-    
+        return now(exchange=NAME)
+
+
     def _round_off_balance(self):
+        self.balance['fiat'] = round(self.balance['fiat'], R_OFF)
         for currency in self.currencies:
             self.balance[currency]['avail'] = round(self.balance[currency]['avail'], R_OFF)
             self.balance[currency]['balance'] = round(self.balance[currency]['balance'], R_OFF)
@@ -635,55 +685,90 @@ class CoinoneTrade(BaseExchange):
 
     def calc_estimated(self):
         estimated = 0
+        currency_estimated = 0
         _balance = deepcopy(self.balance)
 
+        # 체결되지 않은 주문에 대한 추정금 계산.
         if self.order_list.keys():
-            for order in self.order_list.keys():
-                order_c = self.order_list[order]
+            for currency in self.order_list.keys():
+                for order in self.order_list[currency].keys():
+                    order_c = self.order_list[currency].get(order)
 
-                if order_c.get('order_type') == 'BUY':
-                    estimated += math.ceil(order_c['price'] * order_c['quantity'])
-                    _balance[order_c['currency']]['balance'] -= order_c['quantity']
+                    if order_c.get('order_type') == 'BUY':
+                        estimated += round(order_c['price'] * order_c['quantity'], R_OFF)
+                        _balance[order_c['currency']]['balance'] -= order_c['quantity']
 
         for k in _balance.keys():
             if k == 'fiat':
                 estimated += _balance[k]
             else:
                 sleep(0.035)
-                current_orderbook = self.api.get_orderbook(currency=k, fiat=self.fiat, limit=30)
-                estimated += _balance[k]['balance'] * current_orderbook['bids'][0].get('price')
+                if self.using_api == 'EXCHANGE':
+                    current_orderbook = self.api.get_orderbook(currency=k, fiat=self.fiat, limit=30)
+                elif self.using_api == 'CATSLAB':
+                    current_orderbook = ExchangeApi.get_orderbook(exchange=NAME, currency=k)
 
-        return estimated
+                currency_estimated += round(_balance[k]['balance'] * current_orderbook['bids'][0].get('price'), R_OFF)
+
+        self.estimated = estimated + currency_estimated
+        self.currency_ratio = round(currency_estimated / self.estimated, R_OFF)
+        self.earning_rate = round((estimated - self.init_budget) / self.init_budget, R_OFF)
+        return dict(estimated=self.estimated, currency_ratio=self.currency_ratio, earning_rate=self.earning_rate)
 
 
     def clear_balance(self):
+        self.set_cancel()
         for k in self.balance.keys():
             if k == 'fiat':
                 continue
             else:
-                price = self.api.get_orderbook(currency=k, fiat=self.fiat, limit=30)['bids'][0]['price']
+
+                if self.using_api == 'EXCHANGE':
+                    price = self.api.get_orderbook(currency=k, fiat=self.fiat, limit=30)['bids'][0]['price']
+                elif self.using_api == 'CATSLAB':
+                    price = ExchangeApi.get_orderbook(exchange=NAME, currency=k)['bids'][0]['price']
                 self._send_order(
                     Order(
-                        currency=k, order_type='SELL', fiat=self.fiat, price=price,
-                        quantity=self.balance[k]['balance'], is_safety=True)
+                        currency=k, order_type='SELL', fiat=self.fiat, price=price, quantity=self.balance[k]['balance'])
                 )
+
+    def get_orderbook(self, currency):
+        if self.using_api == 'CATSLAB':
+            orderbook = ExchangeApi.get_orderbook(exchange=NAME, currency=currency)
+        elif self.using_api == 'EXCHANGE':
+            orderbook = self.api.get_orderbook(currency=currency, fiat=self.fiat, limit=20)
+        return orderbook
 
 
 class CoinoneBacktest(BaseExchange):
-    name = NAME
     fee_rate = FEE_RATE
 
     def __init__(self, start_date, end_date, init_budget, currency_list, interval_list, fiat, slippage_rate=None,
                  use_data="LIVE", data_path='data'):
-        super().__init__(init_budget=init_budget, currency_list=currency_list, interval_list=interval_list, fiat=fiat)
+        c_func='init'
+        self.name = NAME
         if slippage_rate is None:
             self.slippage_rate = SLIPPAGE_RATE
         else:
             self.slippage_rate = slippage_rate
 
-        self.start_date = start_date
-        self.end_date= end_date
-        self.use_data = use_data
+        if input_value_validation(c_func=c_func, type_='D', param_='start_date', value_=start_date):
+            self.start_date = start_date.astimezone(KST)
+        if input_value_validation(c_func=c_func, type_='D', param_='end_date', value_=end_date):
+            self.end_date= end_date.astimezone(KST)
+        if input_value_validation(c_func=c_func, type_='C', param_='use_data', value_=use_data):
+            self.use_data = use_data
+        input_value_validation(c_func=c_func, type_='N', param_='init_budget', value_=init_budget)
+        if set(currency_list) != set(currency_list) & CURRENCY_LIST:
+            raise InputValueValidException(c_func=c_func, param_='currency', value_=currency_list)
+        if set(interval_list) != set(interval_list) & INTERVAL_LIST:
+            raise InputValueValidException(c_func=c_func, param_='Interval', value_=interval_list)
+        if fiat not in FIAT:
+            raise InputValueValidException(param_='fiat', value_=fiat)
+        if input_value_validation(c_func=c_func, type_='S', param_='data_path', value_=data_path):
+            self.data_path = data_path
+
+        super().__init__(init_budget=init_budget, currency_list=currency_list, interval_list=interval_list, fiat=fiat)
         self.init_balance()
         self.data = dict()
         self.test_df = dict()
@@ -697,11 +782,11 @@ class CoinoneBacktest(BaseExchange):
         self.max_profit = 0.0
         self.max_loss = 0.0
         self.earning_rate = 0.0
-        self.data_path = data_path
 
 
     def init_dataframe(self):
-
+        logger.debug('Preparing data...')
+        
         forward_candle_frame = {
             1: 1440,
             3: 480,
@@ -714,9 +799,11 @@ class CoinoneBacktest(BaseExchange):
             1440: 180
         }
         from_date = {}
+        until_date = {}
 
         for interval in self.intervals:
             from_date[interval] = self.start_date - timedelta(minutes=interval * forward_candle_frame[interval])
+            until_date[interval] = self.end_date - timedelta(minutes=interval)
 
         if self.use_data == 'LOCAL':
             path = f'{self.data_path}/{NAME}'
@@ -727,8 +814,8 @@ class CoinoneBacktest(BaseExchange):
                 if self.use_data == 'LIVE':
                     df = CandleApi.get_df(
                         exchange=NAME, currency=currency, fiat=self.fiat, interval=interval,
-                        from_date=from_date[interval], until_date=self.end_date)
-                    df['datetime'] = [datetime.fromtimestamp(t) for t in df['timestamp']]
+                        from_date=from_date[interval], until_date=until_date[interval])
+                    df['datetime'] = [datetime.fromtimestamp(t).astimezone(KST) for t in df['timestamp']]
                     df.set_index(keys='datetime', inplace=True)
                     self.data[f'{currency}_{interval}'] = df
 
@@ -743,14 +830,19 @@ class CoinoneBacktest(BaseExchange):
                         df[df[df['timestamp'] >= datetime.timestamp(from_date[interval])].index[0]:
                            df[df['timestamp'] <= datetime.timestamp(self.end_date)].index[-1]]
                     self.data[f'{currency}_{interval}']['datetime'] = \
-                        [datetime.fromtimestamp(t) for t in self.data[f'{currency}_{interval}']['timestamp']]
+                        [datetime.fromtimestamp(t).astimezone(KST) for t in self.data[f'{currency}_{interval}']['timestamp']]
                     self.data[f'{currency}_{interval}'].set_index(keys='datetime', inplace=True)
                     del(df)
 
                 self.updated_len[f'{currency}_{interval}'] = len(self.data[f'{currency}_{interval}'])
-
+                logger.debug(f'Prepared candle data {currency}_{interval}')
+                df_len = len(self.data[f'{currency}_{interval}'])
+                logger.info(f'length of {currency}_{interval} : {df_len}')
+                
 
     def init_test_dataframe(self):
+        logger.debug('Initializing dataframe...')
+        
         self.test_df = self.data
         self.data = {}
         for curr_inter in self.test_df.keys():
@@ -808,20 +900,20 @@ class CoinoneBacktest(BaseExchange):
         pop_q.clear()
 
         if self.order_list.keys():
-            estimated, earning_rate = self._get_earning_rate()
+            estimated_dict = self.calc_estimated()
             for k in self.order_list.keys():
-                self.estimated_list.append({'date': k, 'estimated': round(estimated, 4)})
+                self.estimated_list.append({'date': k, 'estimated': round(estimated_dict.get('estimated'), 4)})
                 self.trade_history[k] = {
                     'order_list': self.order_list[k],
                     'balance': deepcopy(self.balance),
-                    'estimated': estimated,
-                    'earning_rate': earning_rate
+                    'estimated': estimated_dict.get('estimated'),
+                    'earning_rate': estimated_dict.get('earning_rate')
                 }
 
                 pop_q.add(k)
 
-            self.max_profit = earning_rate if earning_rate > self.max_profit else self.max_profit
-            self.max_loss = earning_rate if earning_rate < self.max_loss else self.max_loss
+            self.max_profit = estimated_dict.get('earning_rate') if estimated_dict.get('earning_rate') > self.max_profit else self.max_profit
+            self.max_loss = estimated_dict.get('earning_rate') if estimated_dict.get('earning_rate') < self.max_loss else self.max_loss
 
         for i in pop_q:
             self.order_list.pop(i)
@@ -830,38 +922,55 @@ class CoinoneBacktest(BaseExchange):
 
 
     def _send_order(self, order, _datetime=None):
-        if order.quantity < MINUMUM_CURRENCY_QTY[order.currency]:
+        if order.price * order.quantity < MINIMUM_TRADE_PRICE:
+            logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Minimum Trade Price\' : {order}')
+            return dict(result=False, msg='Lower than minimum trade price')
+        elif order.quantity < MINIMUM_CURRENCY_QTY[order.currency]:
+            logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Minimum Currency Quantity\' : {order}')
             return dict(result=False, msg='Lower than minimum quantity')
         else:
             if order.order_type == 'BUY':
                 if order.price * order.quantity <= self.balance['fiat']:
-                    self.balance['fiat'] -= order.price * order.quantity
-                    self.balance[order.currency]['avail'] += order.quantity * (1 - (FEE_RATE + self.slippage_rate))
-                    self.balance[order.currency]['balance'] += order.quantity * (1 - (FEE_RATE + self.slippage_rate))
+                    self.balance['fiat'] -= round(order.price * order.quantity, R_OFF)
+                    self.balance[order.currency]['avail'] += round(order.quantity * (1 - (FEE_RATE + self.slippage_rate)), R_OFF)
+                    self.balance[order.currency]['balance'] += round(order.quantity * (1 - (FEE_RATE + self.slippage_rate)), R_OFF)
                 else:
+                    logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Lack of Balance\' : {order}')
                     return dict(result=False, msg='Not enough Fiat.')
             elif order.order_type == 'SELL':
                 if order.quantity <= self.balance[order.currency]['balance']:
-                    self.balance['fiat'] += order.price * order.quantity * (1 - (FEE_RATE + self.slippage_rate))
+                    self.balance['fiat'] += round(order.price * order.quantity * (1 - (FEE_RATE + self.slippage_rate)), R_OFF)
                     self.balance[order.currency]['avail'] -= order.quantity
                     self.balance[order.currency]['balance'] -= order.quantity
                 else:
+                    logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Lack of Balance\' : {order}')
                     return dict(result=False, msg='Not enough coin balance.')
             else:
+                logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Unknown OrderType\' : {order}')
                 return dict(result=False, msg='Unkown OrderType')
 
-            self.total_fee += order.price * order.quantity * FEE_RATE
-            self.total_slippage += order.price * order.quantity * self.slippage_rate
+            self.total_fee += round(order.price * order.quantity * FEE_RATE, R_OFF)
+            self.total_slippage += round(order.price * order.quantity * self.slippage_rate, R_OFF)
             self.order_list[self._get_df_datetime() if _datetime is None else _datetime].append(order)
             return dict(result=True, msg='Send order complete')
 
 
     def set_order(self, o, t=None):
+        c_func='set_order'
         if isinstance(t, type(None)):
-            return self._send_order(o)
+            if isinstance(o, Order):
+                return self._send_order(o)
+            else:
+                raise InputValueValidException(c_func=c_func, param_='o', value_=o)
+        elif isinstance(t, datetime):
+            if isinstance(o, Order):
+                self.orders[t].append(o)
+                return dict(result=True, msg='Add Order Complete')
+            else:
+                raise InputValueValidException(c_func=c_func, param_='o', value_=o)
         else:
-            self.orders[t].append(o)
-        return dict(result=True, msg='Add Order Complete')
+            raise InputValueValidException(c_func=c_func, param_='t', value_=t)
+
 
     def set_cancel(self, currency=None, order_id=None, qty=None):
         return False
@@ -884,47 +993,61 @@ class CoinoneBacktest(BaseExchange):
 
 
     def _get_df_datetime(self):
-
         currency = self.currencies[0]
         datetime_dump = datetime.fromtimestamp(
-            self.data['{}_{}'.format(currency, self.intervals[0])]['timestamp'].iloc[-1])
+            self.data[f'{currency}_{self.intervals[0]}']['timestamp'].iloc[-1]).astimezone(KST)
 
         if len(self.intervals) > 1:
             for interval in self.intervals[1:]:
                 df_datetime = datetime.fromtimestamp(
-                    self.data['{}_{}'.format(currency, interval)]['timestamp'].iloc[-1])
+                    self.data[f'{currency}_{interval}']['timestamp'].iloc[-1]).astimezone(KST)
                 if df_datetime > datetime_dump:
                     datetime_dump = df_datetime
 
         return datetime_dump
 
 
-    def _get_earning_rate(self):
-        estimated = 0.0
+    def calc_estimated(self):
+        estimated = 0
+        currency_estimated = 0
 
         for key in self.balance.keys():
             if key == 'fiat':
                 estimated += self.balance[key]
             elif self.balance[key]['balance'] is not 0 or 0.0:
-                estimated += self.balance[key]['balance'] * self._get_currency_price(currency=key)
+                currency_estimated += round(self.balance[key]['balance'] * self._get_currency_price(currency=key), R_OFF)
 
-        earning_rate = round((estimated - self.init_budget) / self.init_budget, 4)
+        estimated = estimated + currency_estimated
+        currency_ratio = round(currency_estimated / estimated, R_OFF)
+        earning_rate = round((estimated - self.init_budget) / self.init_budget, R_OFF)
 
-        return estimated, earning_rate
+        return dict(estimated=estimated, currency_ratio=currency_ratio, earning_rate=earning_rate)
+
+
+
+    def clear_balance(self):
+        for k in self.balance.keys():
+            if k == 'fiat':
+                continue
+            else:
+                price = self._get_currency_price(currency=k)
+                self._send_order(
+                    Order(
+                        currency=k, order_type='SELL', fiat=self.fiat, price=price,
+                        quantity=self.balance[k]['balance'])
+                )
 
 
     def _get_currency_price(self, currency):
-        datetime_dump = datetime.fromtimestamp((self.data['{}_{}'.format(
-            currency, self.intervals[0])]['timestamp'].iloc[-1]))
-        recently_df = "{}_{}".format(currency, self.intervals[0])
+        datetime_dump = datetime.fromtimestamp((self.data[f'{currency}_{self.intervals[0]}']['timestamp'].iloc[-1])).astimezone(KST)
+        recently_df = f'{currency}_{self.intervals[0]}'
 
         if len(self.intervals) > 1:
             for interval in self.intervals:
-                df_datetime = datetime.fromtimestamp(self.data['{}_{}'.format(
-                    currency, interval)]['timestamp'].iloc[-1])
+                df_datetime = datetime.fromtimestamp(self.data[f'{currency}_{interval}']['timestamp'].iloc[-1]).astimezone(KST)
                 if df_datetime > datetime_dump:
                     datetime_dump = df_datetime
-                    recently_df = "{}_{}".format(currency, interval)
+                    recently_df = f'{currency}_{interval}'
         return self.data[recently_df]['close'].iloc[-1]
 
 

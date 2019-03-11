@@ -1,4 +1,5 @@
 import json
+import time
 import base64
 import requests
 
@@ -25,12 +26,20 @@ def _request(url, method, user_uuid, **kwargs):
 						   headers=_make_auth_header(user_uuid),
 						   params=params,
 						   json=data).prepare()
+	try_cnt = 0
+	while try_cnt != 5:
+		try:
+			resp = requests.Session().send(req)
+			if resp.status_code >= 400:
+				raise CozaRequestException(req, resp)
+			return resp.json()
+		except requests.exceptions.ConnectionError as e:
+			msg=e
+			try_cnt+=1
+			time.sleep(0.5)
+			continue
 
-	resp = requests.Session().send(req)
-	if resp.status_code >= 400:
-		raise CozaRequestException(req, resp)
-
-	return resp.json()
+	return dict(result=False, msg=msg)
 
 
 class TradeApi(object):
@@ -40,19 +49,19 @@ class TradeApi(object):
 		cls.bot_id = bot_id
 
 	# 하나의 봇에서 여러 거래소를 사용하는 경우 아래의 accounts 추가 및 order로 변경
-
+	#
 	# @classmethod
 	# def balance(cls, account: Account):
 	# 	url = f'{COZA_HOST}/users/{cls.user_uuid}/excAcnts/{account.uuid}/balance'
 	# 	balance = _request(url, 'GET', cls.user_uuid)
 	# 	return balance
-
+	#
 	# @classmethod
 	# def accounts(cls):
 	# 	url = f'{COZA_HOST}/users/{cls.user_uuid}/excAcnts'
 	# 	accounts = _request(url, 'GET', cls.user_uuid)
 	# 	return [Account(**a) for a in accounts.get('results')]
-
+	#
 	# @classmethod
 	# def order(cls, order: Order):
 	# 	url = f'{COZA_HOST}/users/{cls.user_uuid}/excAcnts/{order.account.uuid}/order'
@@ -66,53 +75,60 @@ class TradeApi(object):
 	# 	result = _request(url, 'POST', cls.user_uuid, data=payload)
 	# 	return result
 
-	# # bot의 order api
-	# @classmethod
-	# def order(cls, order: Order):
-	# 	url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/order'
-	# 	result = _request(url, 'POST', cls.user_uuid, data={'order_type': order.order_type,
-	# 												'currency': order.currency,
-	# 												'fiat': order.fiat,
-	# 												'quantity': order.quantity,
-	# 												'price': order.price,
-	# 												'is_safety': order.is_safety})
-	# 	return result
+	# bot의 order api
+	@classmethod
+	def order(cls, order: Order):
+		url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/order'
+		result = _request(url, 'POST', cls.user_uuid, data={'order_type': order.order_type,
+													'currency': order.currency,
+													'fiat': order.fiat,
+													'quantity': order.quantity,
+													'price': order.price,
+													'is_safety': order.is_safety})
+		return result
 
-	# # bot의 order 목록 조회 api
-	# @classmethod
-	# def order_list(cls, currency):
-	# 	url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/orderlist'
-	# 	result = _request(url, 'POST', cls.user_uuid, data={'currency': currency})
-	# 	return result
+	# bot의 order 목록 조회 api
+	@classmethod
+	def order_list(cls, currency):
+		url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/orderlist'
+		result = _request(url, 'POST', cls.user_uuid, data={'currency': currency})
+		return result
 
-	# # bot의 order 취소 api
-	# @classmethod
-	# def order_cancel(cls, order_type, order_id, currency, fiat, price, quantity):
-	# 	url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/ordercancel'
-	# 	result = _request(url, 'POST', cls.user_uuid, data={'order_type': order_type,
-	# 												'currency': currency,
-	# 												'fiat': fiat,
-	# 												'quantity': quantity,
-	# 												'price': price,
-	# 												'order_id':order_id})
-	# 	return result
+	# bot의 order 취소 api
+	@classmethod
+	def order_cancel(cls, order_type, order_id, currency, fiat, price, quantity):
+		url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/ordercancel'
+		result = _request(url, 'POST', cls.user_uuid, data={'order_type': order_type,
+													'currency': currency,
+													'fiat': fiat,
+													'quantity': quantity,
+													'price': price,
+													'order_id':order_id})
+		return result
 
-	# # bot의 order 상태 조회 api
-	# @classmethod
-	# def order_status(cls, currency, order_id):
-	# 	url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/orderstatus'
-	# 	result = _request(url, 'POST', cls.user_uuid, data={'currency': currency,
-	# 														'order_id': order_id})
-	# 	if result['order_info'] is not None:
-	# 		result['order_info']['currency'] = result['order_info']['currency'].lower()
-	# 		result['order_info']['fee'] = float(result['order_info']['fee'])
-	# 		result['order_info']['feeRate'] = float(result['order_info']['feeRate'])
-	# 		result['order_info']['price'] = float(result['order_info']['price'])
-	# 		result['order_info']['qty'] = round(float(result['order_info']['qty']), 3)
-	# 		result['order_info']['remainQty'] = round(float(result['order_info']['remainQty']), 3)
-	# 		result['order_info']['timestamp'] = int(result['order_info']['timestamp'])
+	# bot의 완료된 order 조회 api
+	@classmethod
+	def order_complete(cls, currency):
+		url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/ordercomplete'
+		result = _request(url, 'POST', cls.user_uuid, data={'currency': currency})
+		return result
 
-	# 	return result
+	# bot의 order 상태 조회 api
+	@classmethod
+	def order_status(cls, currency, order_id):
+		url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/orderstatus'
+		result = _request(url, 'POST', cls.user_uuid, data={'currency': currency,
+															'order_id': order_id})
+		if result['info'] is not None:
+			result['info']['currency'] = result['info']['currency'].lower()
+			result['info']['fee'] = float(result['info']['fee'])
+			result['info']['feeRate'] = float(result['info']['feeRate'])
+			result['info']['price'] = float(result['info']['price'])
+			result['info']['qty'] = round(float(result['info']['qty']), 3)
+			result['info']['remainQty'] = round(float(result['info']['remainQty']), 3)
+			result['info']['timestamp'] = int(result['info']['timestamp'])
+
+		return result
 
 	# bot의 정보 조회 api
 	@classmethod
@@ -149,20 +165,6 @@ class TradeApi(object):
 		else:
 			result = _request(url, 'GET', cls.user_uuid)
 		return result
-
-	### 추후 삭제 예정 ###### 추후 삭제 예정 ###
-	# bot의 화폐 및 원화 수정 api
-	@classmethod
-	def bot_update_quantity(cls, use_balance, exchange, fiat, currency, avail, balance):
-		url = f'{COZA_HOST}/users/{cls.user_uuid}/bots/{cls.bot_id}/updatequantity'
-		result = _request(url, 'PUT', cls.user_uuid, data={'use_balance': use_balance,
-															'exchange': exchange,
-															'fiat': fiat,
-															'currency': currency,
-															'avail': avail,
-															'balance': balance})
-		return result
-	### 추후 삭제 예정 ###### 추후 삭제 예정 ###
 
 	# bot history 조회 api
 	'''

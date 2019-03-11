@@ -5,15 +5,12 @@ import json
 import base64
 import time
 import math
-from fake_useragent import UserAgent
 
 from .base import BaseAPIWrapper, private_api
 from .exception import ExchangeAPIException
 
 def truncate(f, n):
 	return math.floor(round(f * 10 ** n, n)) / 10 ** n
-
-	
 
 class CoinoneAPIWrapper(BaseAPIWrapper):
 	host = 'https://api.coinone.co.kr/'
@@ -99,7 +96,6 @@ class CoinoneAPIWrapper(BaseAPIWrapper):
 	def prepare_request(self, method, endpoint, **kwargs):
 		params = dict(**kwargs.get('additional_params', {}))
 		payload = dict(**kwargs.get('additional_payload', {}))
-		useragent = UserAgent()
 		headers = {
 			'Content-Type': 'application/json'
 		}
@@ -108,8 +104,7 @@ class CoinoneAPIWrapper(BaseAPIWrapper):
 			signature = self.get_signature(payload)
 			headers = dict(headers, **{
 				'X-COINONE-PAYLOAD': payload,
-				'X-COINONE-SIGNATURE': signature,
-				'User-Agent':useragent.random
+				'X-COINONE-SIGNATURE': signature
 			})
 
 		return requests.Request(
@@ -167,8 +162,8 @@ class CoinoneAPIWrapper(BaseAPIWrapper):
 		else:
 			resp = resp.json()
 		return {
-			'bids': [(lambda x: {'price': int(x['price']), 'quantity': float(x['qty'])})(x) for x in resp.get('bid')][:limit],
-			'asks': [(lambda x: {'price': int(x['price']), 'quantity': float(x['qty'])})(x) for x in resp.get('ask')][:limit]
+			'bids': [(lambda x: {'price': int(float(x['price'])), 'quantity': float(x['qty'])})(x) for x in resp.get('bid')][:limit],
+			'asks': [(lambda x: {'price': int(float(x['price'])), 'quantity': float(x['qty'])})(x) for x in resp.get('ask')][:limit]
 		}
 
 	@private_api

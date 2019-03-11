@@ -2,7 +2,7 @@ import math
 
 class Order(object):
     def __init__(self, currency, order_type, quantity, price, fiat, is_safety=False):
-        self.order_type = str(order_type)
+        self.order_type = str(order_type).upper()
         self.currency = str(currency).lower()
         self.fiat = str(fiat).lower()
         self.price = float(price)

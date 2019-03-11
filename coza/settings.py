@@ -1,5 +1,57 @@
+from coza.errors import InputValueValidException
+from coza.logger import logger
 from beautifultable import BeautifulTable
+from datetime import datetime
 from coza.utils import truncate
+
+
+CATEGORY_TABLE = dict(
+    running_mode = ('LOCAL', 'LIVE'),
+    running_type = ('LOCAL', 'LIVE'),
+    use_data = ('LOCAL', 'LIVE'),
+    backtest_type = ('day', 'week', 'month'),
+    using_api = ('CATSLAB', 'EXCHANGE'),
+    exchange = ('coinone',)
+)
+
+def input_value_validation(c_func, type_,  param_, value_):
+    """
+        Args:
+            type_(str):
+                'C' : Categorical Data.
+                'S' : String Data.
+                'N' : Numerical Data.
+                'F' : Function.
+                'B' : Boolean.
+                'D' : Datetime.
+            param_(str):
+                Parameter Name.
+            value_:
+                Parameter Value.
+        Returns:
+            True or Raise Exception.
+    """
+
+    if type_=='C':
+        if value_ not in CATEGORY_TABLE.get(param_):
+            InputValueValidException(c_func=c_func, param_=param_, value_=value_)
+    elif type_=='S':
+        if not isinstance(value_, str):
+            InputValueValidException(c_func=c_func, param_=param_, value_=value_)
+    elif type_=='N':
+        if not isinstance(value_, (int, float)) or value_ < 0:
+            InputValueValidException(c_func=c_func, param_=param_, value_=value_)
+    elif type_=='F':
+        if not callable(value_):
+            InputValueValidException(c_func=c_func, param_=param_, value_=value_)
+    elif type_=='B':
+        if not isinstance(value_, bool):
+            InputValueValidException(c_func=c_func, param_=param_, value_=value_)
+    elif type_=='D':
+        if not isinstance(value_, datetime):
+            InputValueValidException(c_func=c_func, param_=param_, value_=value_)
+
+    return True
 
 
 class OrderQuantity(object):
@@ -104,9 +156,12 @@ class Safety(object):
 
     def check(self, estimted):
         if self.pt_checked and self._profit_target(estimted):
+            logger.debug('Profit target condition is checked.')
             return True
         if self.sl_checked and self._stop_loss(estimted):
+            logger.debug('Stop loss condition is checked.')
             return True
         if self.ts_checked and self._trailling_stop(estimted):
+            logger.debug('Trailing stop condition is checked.')
             return True
 

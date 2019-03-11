@@ -54,4 +54,8 @@ class BaseExchange(ABC):
     def get_time(self):
         raise NotImplementedError
 
+    @abstractmethod
+    def calc_estimated(self):
+        raise NotImplementedError
+
 

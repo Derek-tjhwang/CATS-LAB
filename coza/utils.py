@@ -1,6 +1,11 @@
+from datetime import datetime, timedelta
+
 import numpy as np
+import pytz
 import math
-import datetime
+
+
+KST = pytz.timezone('Asia/Seoul')
 
 
 def pick_from_candle(candle_list, pick='close'):
@@ -63,7 +68,7 @@ def truncate(f, n):
 
 
 def get_midnight(dt):
-    return datetime.datetime.combine(dt.date(), datetime.datetime.min.time(), dt.tzinfo)
+    return datetime.combine(dt.date(), datetime.min.time(), dt.tzinfo)
 
 
 def align_date(date, interval):
@@ -80,12 +85,18 @@ def align_date(date, interval):
     :return: datetime
     """
     delta = (date - get_midnight(date)).total_seconds() % (interval * 60)
-    return date - datetime.timedelta(seconds=delta)
+    return date - timedelta(seconds=delta)
 
 
-def now(rounding_seconds=False):
-    dt = datetime.datetime.now()
+def now(exchange=None, rounding_seconds=False):
+    TZ_TABLE = {
+        'coinone': KST,
+    }
+
     if rounding_seconds:
-        format = '%Y-%m-%d %H:%M'
-        dt = datetime.datetime.strptime(dt.strftime(format), format)
+        dt = datetime.now(TZ_TABLE.get(exchange.lower(), KST)).replace(second=0, microsecond=0)
+    else:
+        dt = datetime.now(TZ_TABLE.get(exchange.lower(), KST))
     return dt
+
+

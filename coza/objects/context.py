@@ -3,8 +3,7 @@ from abc import ABC, abstractmethod
 class Context(ABC):
 
 
-    def __init__(self, user_uuid=None, initialize=None, run_strategy=None, make_orders=None, running_mode='LOCAL'):
-        self.user_uuid=user_uuid
+    def __init__(self, initialize=None, run_strategy=None, make_orders=None, running_mode='LOCAL'):
         self.running_mode = running_mode
         self.wait_time = dict()
         self.exchanges = dict()
@@ -40,6 +39,14 @@ class Context(ABC):
 
     @abstractmethod
     def get_time(self, exchange):
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_estimated(self, exchange):
+        raise NotImplementedError
+
+    @abstractmethod
+    def clear_balance(self, exchange):
         raise NotImplementedError
 
 
