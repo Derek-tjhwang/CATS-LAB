@@ -547,7 +547,7 @@ class CoinoneTrade(BaseExchange):
                 # 부분취소인 경우 False를 반환 (list에서 pop하지 않도록)
                 elif qty < remainQty:
                     self.order_list[currency][order_id]['fee'] -= round(quantity_c * FEE_RATE, R_OFF)
-                    self.order_list[currency][order_id]['fee'] = round(self.order_list[currency][order_id]['fee'],R_OFF)
+                    self.order_list[currency][order_id]['fee'] = round(self.order_list[currency][order_id]['fee'], R_OFF)
                     self.order_list[currency][order_id]['remain_qty'] -= qty
                     self.order_list[currency][order_id]['remain_qty'] = round(self.order_list[currency][order_id]['remain_qty'], R_OFF)
                     return False
@@ -1017,7 +1017,7 @@ class CoinoneBacktest(BaseExchange):
             elif self.balance[key]['balance'] is not 0 or 0.0:
                 currency_estimated += round(self.balance[key]['balance'] * self._get_currency_price(currency=key), R_OFF)
 
-        estimated = estimated + currency_estimated
+        estimated = round(estimated + currency_estimated, R_OFF)
         currency_ratio = round(currency_estimated / estimated, R_OFF)
         earning_rate = round((estimated - self.init_budget) / self.init_budget, R_OFF)
 

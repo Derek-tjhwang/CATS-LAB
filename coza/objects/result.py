@@ -2,7 +2,9 @@ from datetime import datetime
 import plotly.offline as py
 import plotly.graph_objs as go
 import pandas as pd
+import pytz
 
+KST = pytz.timezone('Asia/Seoul')
 
 class Result(object):
 
@@ -46,13 +48,13 @@ class Result(object):
             currency_list = self.currencies
 
         if main_interval is None:
-            interval = max(self.intervals)
+            interval = min(self.intervals)
         else:
             interval = main_interval
 
         a_currency = currency_list[0]
         if isinstance(self.start_date, datetime):
-            start_date = self.start_date
+            start_date = self.start_date.astimezone(KST)
         elif isinstance(self.start_date, str):
             start_date = datetime.strptime(self.start_date, "%Y-%m-%dT%H:%M")
 
@@ -62,16 +64,17 @@ class Result(object):
             end_date = datetime.strptime(self.end_date, "%Y-%m-%dT%H:%M")
 
         x_index = []
-        for _timestamp in self.data['{}_{}'.format(a_currency, interval)]['timestamp'][self.data['{}_{}'.format(a_currency, interval)]['timestamp']>=datetime.timestamp(self.start_date)].values:
-            x_index.append(datetime.fromtimestamp(_timestamp))
+        for _index in list(self.data['{}_{}'.format(a_currency, interval)].index):
+            if _index >= self.start_date:
+                x_index.append(_index)
 
         df = pd.DataFrame(list(self.estimated_list))
 
         data = []
-        data.append(go.Scatter(x=df['date'], y=df['estimated'], name='Change Balance', yaxis='y1'))
+        data.append(go.Scatter(x=df['date'].astype('str'), y=df['estimated'], name='Change Balance', yaxis='y1'))
 
         for i, currency in enumerate(currency_list):
-            data.append(go.Scatter(x=x_index,
+            data.append(go.Scatter(x=pd.Series(x_index).astype('str'),
                                    y=self.data['{}_{}'.format(currency, interval)]['close'][self.data['{}_{}'.format(currency, interval)]['timestamp']>=datetime.timestamp(self.start_date)],
                                    name='{} Close'.format(currency),
                                    yaxis='y{}'.format(i+2)))
@@ -110,21 +113,21 @@ class Result(object):
             for order in self.trade_history:
                 for _order in self.trade_history[order]['order_list']:
                     if _order.order_type == 'BUY':
-                        BUY_list['{}'.format(_order.currency)].append({'date': order , 'price': _order.price})
+                        BUY_list['{}'.format(_order.currency)].append({'date': order, 'price': _order.price})
                     else:
-                        SELL_list['{}'.format(_order.currency)].append({'date': order , 'price': _order.price})
+                        SELL_list['{}'.format(_order.currency)].append({'date': order, 'price': _order.price})
 
             for i, currency in enumerate(currency_list):
                 if len(BUY_list['{}'.format(currency)]) != 0 and len(SELL_list['{}'.format(currency)]) !=0:
                     BUY_df = pd.DataFrame(BUY_list['{}'.format(currency)])
                     SELL_df = pd.DataFrame(SELL_list['{}'.format(currency)])
 
-                    data.append(go.Scatter(x=BUY_df['date'],
+                    data.append(go.Scatter(x=BUY_df['date'].astype('str'),
                                            y=BUY_df['price'],
                                            mode='markers',
                                            name = '{} BUY-markers'.format(currency), 
                                            yaxis='y{}'.format(i+2)))
-                    data.append(go.Scatter(x=SELL_df['date'],
+                    data.append(go.Scatter(x=SELL_df['date'].astype('str'),
                                            y=SELL_df['price'],
                                            mode='markers',
                                            name = '{} SELL-markers'.format(currency), 
