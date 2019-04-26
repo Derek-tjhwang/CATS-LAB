@@ -1,10 +1,19 @@
 from abc import ABC, abstractmethod
+from coza.api import TradeApi
+from coza.logger import logger
+from coza.errors import InputValueValidException
+
+import sys
+
 
 class Context(ABC):
 
 
     def __init__(self, initialize=None, run_strategy=None, make_orders=None, running_mode='LOCAL'):
-        self.running_mode = running_mode
+        if running_mode.upper() not in ('LOCAL', 'LIVE'):
+            raise InputValueValidException(msg='at init', running_mode=running_mode)
+        else:
+            self.running_mode = running_mode.upper()
         self.wait_time = dict()
         self.exchanges = dict()
         self.initialize = initialize
@@ -16,6 +25,20 @@ class Context(ABC):
 
     def get_waiting_time(self):
         return self.wait_time
+
+    def _exit(self, msg=None):
+        logger.info(msg=msg)
+        if self.running_mode == 'LIVE':
+            TradeApi.bot_stop(data=msg)
+        else:
+            sys.exit()
+
+    def _stop_bot(self, msg=None):
+        default_msg = 'Bot stop by Safety settings.'
+        msg = default_msg if msg == None else msg
+        if self.running_mode == 'LIVE':
+            logger.info(msg=msg)
+            TradeApi.bot_stop(data=msg)
 
     @abstractmethod
     def run(self):

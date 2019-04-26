@@ -91,6 +91,7 @@ def align_date(date, interval):
 def now(exchange=None, rounding_seconds=False):
     TZ_TABLE = {
         'coinone': KST,
+        'upbit': KST,
     }
 
     if rounding_seconds:

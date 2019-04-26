@@ -1,7 +1,6 @@
 from apscheduler.schedulers.blocking import  BlockingScheduler
-from coza.settings import input_value_validation
 from coza.algorithms import load_functions
-from coza.exchange import CoinoneTrade
+from coza.errors import InputValueValidException
 from coza.objects import Context
 from coza.logger import logger
 from coza.api import TradeApi
@@ -12,13 +11,13 @@ from coza.utils import now
 class BotContext(Context):
     def __init__(
             self, user_uuid = None, bot_id=None, api_key=None, secret_key=None,init_budget=None, exchange=None, initialize=None, run_strategy=None,
-            make_orders=None, running_mode='LOCAL', running_type='LIVE', using_api='EXCHANGE', **kwargs):
+            make_orders=None, running_mode='LOCAL', running_type='SERVICE', using_api='EXCHANGE', **kwargs):
         super().__init__(
             initialize=initialize, run_strategy=run_strategy, make_orders=make_orders, running_mode=running_mode)
-        c_func='init'
-        if input_value_validation(c_func=c_func, type_='C', param_='running_mode', value_=running_mode.upper()):
-            self.running_mode = running_mode.upper()
-        if input_value_validation(c_func=c_func, type_='C', param_='running_type', value_=running_type.upper()):
+
+        if running_type.upper() not in ('DEV', 'SERVICE'):
+            raise InputValueValidException(msg='at init', running_type=running_type)
+        else:
             self.running_type = running_type.upper()
 
         self.context = dict()
@@ -26,12 +25,17 @@ class BotContext(Context):
         self.running_stat = 't'
 
         if self.running_mode == 'LIVE':
-            if input_value_validation(c_func=c_func, type_='S', param_='user_uuid', value_=user_uuid):
+            if isinstance(user_uuid, str):
                 self.user_uuid = user_uuid
-            if input_value_validation(c_func=c_func, type_='S', param_='bot_id', value_=bot_id):
+            else:
+                raise InputValueValidException(msg='at init', user_uuid=user_uuid)
+            if isinstance(bot_id, (int, str)):
                 self.bot_id = bot_id
+            else:
+                raise InputValueValidException(msg='at init', bot_id=bot_id)
 
             TradeApi.initialize(user_uuid=self.user_uuid, bot_id=self.bot_id)
+
             self.bot_info = TradeApi.bot_info()
             self._bot_code = TradeApi.bot_code()
             exchange_key = TradeApi.get_user_excAcnt(self.bot_info.get('exchange_account').get('uuid'))
@@ -39,8 +43,11 @@ class BotContext(Context):
             self.secret_key = exchange_key.get('secret_key')
             self.initialize, self.run_strategy, self.make_orders = load_functions(self._bot_code)
 
-            input_value_validation(c_func=c_func, type_='F', param_='initialize', value_=self.initialize)
-            self.initialize(self)
+            if callable(self.initialize):
+                self.initialize(self)
+            else:
+                raise InputValueValidException(msg='at init', initialize=initialize)
+
             self.exchange = self.bot_info.get('exchange')
             self.init_budget = self.bot_info.get('init_balance')
             self.fiat = self.bot_info.get('fiat')
@@ -56,34 +63,53 @@ class BotContext(Context):
             self.initialize = initialize
             self.run_strategy = run_strategy
             self.make_orders = make_orders
-            input_value_validation(c_func=c_func, type_='F', param_='initialize', value_=self.initialize)
-            self.initialize(self)
+            if callable(self.initialize):
+                self.initialize(self)
+            else:
+                raise InputValueValidException(msg='at init', initialize=initialize)
             safety_setting = self.context['trade_info'].get('safety_setting', None)
 
             if safety_setting is not None:
                 self.safety = Safety(safety_setting, init_budget)
             self.exchange = exchange
 
-        input_value_validation(c_func=c_func, type_='S', param_='api_key', value_=self.api_key)
-        input_value_validation(c_func=c_func, type_='S', param_='secret_key', value_=self.secret_key)
-        input_value_validation(c_func=c_func, type_='N', param_='init_budget', value_=self.init_budget)
-        input_value_validation(c_func=c_func, type_='F', param_='run_strategy', value_=self.run_strategy)
-        input_value_validation(c_func=c_func, type_='F', param_='make_orders', value_=self.make_orders)
+        if not isinstance(self.api_key, str):
+            raise InputValueValidException(msg='at init', api_key=api_key)
+        if not isinstance(self.secret_key, str):
+            raise InputValueValidException(msg='at init', secret_key=secret_key)
+        if not isinstance(self.init_budget, (int, float)):
+            raise InputValueValidException(msg='at init', init_budget=init_budget)
+        # if not(callable(run_strategy)):
+        #     raise InputValueValidException(msg='at init', run_strategy=run_strategy)
+        # if not(callable(make_orders)):
+        #     raise InputValueValidException(msg='at init', make_orders=make_orders)
 
-        if self.exchange == 'coinone':
+        if self.exchange in ('coinone', 'upbit'):
             try:
-                trade_info = self.context['trade_info']['coinone']
-                self.exchanges['coinone'] = CoinoneTrade(
-                    api_key=self.api_key, secret_key=self.secret_key, init_budget=self.init_budget,
-                    currency_list=trade_info.get('currency'), interval_list=trade_info.get('interval'),
-                    fiat=trade_info.get('fiat'), running_mode=self.running_mode, using_api=using_api)
-            except:
-                logger.error('Exchange not define context.')
-                quit()
+                if self.exchange == 'coinone':
+                    from coza.exchange import CoinoneTrade
+                    trade_info = self.context['trade_info']['coinone']
+                    self.exchanges['coinone'] = CoinoneTrade(
+                        api_key=self.api_key, secret_key=self.secret_key, init_budget=self.init_budget,
+                        currency_list=trade_info.get('currency'), interval_list=trade_info.get('interval'),
+                        fiat=trade_info.get('fiat'), running_mode=self.running_mode, using_api=using_api)
+                elif self.exchange == 'upbit':
+                    from coza.exchange import UpbitTrade
+                    trade_info = self.context['trade_info']['upbit']
+                    self.exchanges['upbit'] = UpbitTrade(
+                        api_key=self.api_key, secret_key=self.secret_key, init_budget=self.init_budget,
+                        currency_list=trade_info.get('currency'), interval_list=trade_info.get('interval'),
+                        fiat=trade_info.get('fiat'), running_mode=self.running_mode, using_api=using_api)
+            except KeyError as e:
+                logger.error(f'정의되지 않은 key 입니다. {e}')
+                self._exit(msg=f'Exchange not define context. {e}')
+            except Exception as e:
+                logger.error(f'Exchange not define context. {e}')
+                self._exit(msg=f'Exchange not define context. {e}')
 
         else:
-            logger.debug("지원하지 않는 거래소 입니다.")
-            quit()
+            logger.debug(f"지원하지 않는 거래소 입니다. {self.exchange}")
+            self._exit(msg=f'지원하지 않는 거래소 입니다. {self.exchange}')
 
         self.exchanges[self.exchange].init_dataframe()
         self.run_strategy(
@@ -111,22 +137,26 @@ class BotContext(Context):
         
         exchange = self.exchange
         self.exchanges[exchange].update_balance()
-        estimated = self.exchanges[exchange].calc_estimated()
+        self.estimated = self.exchanges[exchange].calc_estimated()
 
         if self.running_mode == 'LIVE':
             data = dict(
-                use_balance= estimated.get('estimated'),
-                profit_rate= round((estimated.get('estimated') - self.init_budget) / self.init_budget,4) * 100,
+                use_balance= self.estimated.get('estimated'),
+                profit_rate= round((self.estimated.get('estimated') - self.init_budget) / self.init_budget,4) * 100,
                 create_time= int(now(exchange=exchange, rounding_seconds=True).timestamp())
             )
             logger.info(f'Bot Profit : {data}')
-            TradeApi.bot_profits(data=data)
+            try:
+                TradeApi.bot_profits(data=data)
+            except Exception as e:
+                logger.error(msg=e)
+                TradeApi.error(error_msg='Failed send Bot profit.')
 
         if hasattr(self, 'safety'):
             if self.safety.chk_safety:
                 logger.debug('Checking the Safety conditions...')
-                if self.safety.check(estimated.get('estimated')):
-                    logger.info('estimated : {}'.format(estimated.get('estimated')))
+                if self.safety.check(self.estimated.get('estimated')):
+                    logger.info('estimated : {}'.format(self.estimated.get('estimated')))
                     self.running_stat = 'c'
 
         if self.running_stat == 't':
@@ -147,6 +177,8 @@ class BotContext(Context):
             self.exchanges[exchange].send_orders()
 
         elif self.running_stat == 'c':
+            if self.estimated.get('currency_ratio') < 0.01:
+                self._stop_bot()
             logger.debug(f'Clear balance \n Current balance : {self.get_balance(exchange)}')
             self.exchanges[exchange].clear_balance()
             logger.info(f'Balance after clear_balance : {self.get_balance(exchange)}')
@@ -155,8 +187,7 @@ class BotContext(Context):
         return self.exchanges[exchange].set_order(o=o, t=t)
 
     def set_cancel(self, exchange, currency=None, order_id=None, qty=None):
-        return self.exchanges[exchange].set_cancel(
-            currency=currency, order_id=order_id, qty=qty)
+        return self.exchanges[exchange].set_cancel(currency=currency, order_id=order_id, qty=qty)
 
     def get_balance(self, exchange):
         return self.exchanges[exchange].get_balance()

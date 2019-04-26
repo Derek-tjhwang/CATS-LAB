@@ -64,8 +64,9 @@ class CozaExchangeException(CozaException):
         super().__init__(msg, **kwargs)
 
 class InputValueValidException(CozaException):
-    default_msg = 'Invalid input value.'
-    def __init__(self, c_func, param_, value_, **kwargs):
-        msg = f'{self.default_msg} Call Function : {c_func}, {param_} : {value_} {type(value_)}'
+    default_msg = 'Invalid input value at'
+    def __init__(self, msg, **kwargs):
+        msg = f'{self.default_msg}: {msg}'
         super().__init__(msg, **kwargs)
+
 

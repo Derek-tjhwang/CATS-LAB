@@ -184,6 +184,7 @@ class ExchangeApi(object):
 		"""
 		url = f'{COZA_HOST}/exchanges/{exchange.lower()}/orderbook'
 		data = _request(url, 'GET', params={'currency': currency.upper()})
+
 		return data
 
 

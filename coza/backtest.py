@@ -1,13 +1,13 @@
 from coza.objects import Context, Result
 from coza.api import BacktestApi
-from coza.exchange import CoinoneBacktest
-from coza.settings import input_value_validation
+from coza.errors import InputValueValidException
 from coza.utils import now
 from coza.logger import logger
 from datetime import datetime, timedelta
 from copy import deepcopy
 
 import pandas as pd
+import sys
 import os
 import time
 
@@ -16,16 +16,21 @@ class BacktestContext(Context):
     def __init__(self, initialize, run_strategy, make_orders, user_uuid=None, model_name=None, running_mode='LOCAL',
                 use_data='LIVE', data_path='data', save_result=False, return_result=True):
 
-        c_func= 'init'
-        if input_value_validation(c_func=c_func, type_='C', param_='use_data', value_=use_data):
-            self.use_data = use_data
-        if input_value_validation(c_func=c_func, type_='S', param_='data_path', value_=data_path):
+        if use_data.upper() not in ('LOCAL', 'LIVE'):
+            raise InputValueValidException(msg='at init', use_data=use_data)
+        else:
+            self.use_data = use_data.upper()
+        if not isinstance(data_path, str):
+            raise InputValueValidException(msg='at init', data_path=data_path)
+        else:
             self.data_path = data_path
-        if input_value_validation(c_func=c_func, type_='B', param_='save_result', value_=save_result):
+        if not isinstance(save_result, bool):
+            raise InputValueValidException(msg='at init', save_result=save_result)
+        else:
             self.save_result = save_result
-        if input_value_validation(c_func=c_func, type_='C', param_='running_mode', value_=running_mode):
-            self.running_mode = running_mode
-        if input_value_validation(c_func=c_func, type_='B', param_='return_result', value_=return_result):
+        if not isinstance(return_result, bool):
+            raise InputValueValidException(msg='at init', return_result=return_result)
+        else:
             self.return_result = return_result
 
         self.context = dict()
@@ -34,11 +39,19 @@ class BacktestContext(Context):
         super().__init__(
             initialize=initialize, run_strategy=run_strategy, make_orders=make_orders, running_mode=running_mode)
 
-        if running_mode == 'LIVE':
-            if input_value_validation(c_func=c_func, type_='S', param_='user_uuid', value_=user_uuid):
-                BacktestApi.initialize(user_uuid)
-            if input_value_validation(c_func=c_func, type_='S', param_='model_name', value_=model_name):
-                self.model_info = BacktestApi.get_model(model_name)
+        if self.running_mode == 'LIVE':
+            try:
+                if not isinstance(user_uuid, str):
+                    raise InputValueValidException(msg='at init', user_uuid=user_uuid)
+                else:
+                    BacktestApi.initialize(user_uuid)
+                if not isinstance(model_name, str):
+                    raise InputValueValidException(msg='at init', model_name=model_name)
+                else:
+                    self.model_info = BacktestApi.get_model(model_name)
+            except Exception as e:
+                logger.info('Initialize failed')
+                sys.exit()
 
         self.initialize(self)
 
@@ -47,41 +60,47 @@ class BacktestContext(Context):
                 os.listdir(data_path)
             except FileNotFoundError:
                 logger.info("data path를 찾지 못 하였습니다.")
-                quit()
+                sys.exit()
 
 
     def run(self, exchange, start_date=None, end_date=None, init_budget=10000000.0, backtest_type=None, slippage_rate=None):
         logger.debug('Start backtest')
 
-        c_func='run'
         if backtest_type is not None:
             backtest_type = backtest_type.lower()
-            if input_value_validation(c_func=c_func, type_='C', param_='backtest_type', value_=backtest_type):
+            if backtest_type.lower() in ('d', 'w', 'm'):
                 self.backtest_type = backtest_type
                 end_date = now(exchange=exchange, rounding_seconds=True) - timedelta(minutes=1)
-                if backtest_type == 'day':
+                if backtest_type == 'd':
                     start_date = end_date - timedelta(days=1)
-                elif backtest_type == 'week':
+                elif backtest_type == 'w':
                     start_date = end_date - timedelta(days=7)
-                elif backtest_type == 'month':
+                elif backtest_type == 'm':
                     start_date = end_date - timedelta(days=30)
+            else:
+                raise InputValueValidException(msg='at run', backtest_type=backtest_type)
         else:
-            if input_value_validation(c_func=c_func, type_='D', param_='start_date', value_=start_date):
+            if isinstance(start_date, (datetime, str)):
                 start_date = datetime.strptime(datetime.strftime(start_date, "%Y-%m-%dT%H:%M"), "%Y-%m-%dT%H:%M")
-            if input_value_validation(c_func=c_func, type_='D', param_='end_date', value_=end_date):
+            else:
+                raise InputValueValidException(msg='at run', start_date=start_date)
+            if isinstance(end_date, (datetime, str)):
                 end_date = datetime.strptime(datetime.strftime(end_date, "%Y-%m-%dT%H:%M"), "%Y-%m-%dT%H:%M")
+            else:
+                raise InputValueValidException(msg='at run', end_date=end_date)
 
-        input_value_validation(c_func=c_func, type_='N', param_='init_budget', value_=init_budget)
-        if input_value_validation(c_func=c_func, type_='C', param_='exchange', value_=exchange):
+        if not isinstance(init_budget, (int, float)):
+            raise InputValueValidException(msg='at run', init_budget=init_budget)
+        if exchange in ('coinone', 'upbit'):
+            self.exchange = exchange
             trade_info = self.context['trade_info'].get(exchange)
-
             logger.info(f'start_date : {start_date}')
             logger.info(f'end_date : {end_date}')
             logger.info(f'trade_info of exchange {exchange} : {trade_info}')
 
             if trade_info is not None:
-                self.exchanges[exchange] = CoinoneBacktest(
-                    start_date=start_date, end_date=end_date, init_budget=init_budget,
+                self.exchanges[exchange] = self.make_exchange(
+                    exchange=exchange, start_date=start_date, end_date=end_date, init_budget=init_budget,
                     currency_list=trade_info['currency'], interval_list=trade_info['interval'],
                     fiat=trade_info['fiat'], slippage_rate=slippage_rate, use_data=self.use_data,
                     data_path=self.data_path)
@@ -89,8 +108,24 @@ class BacktestContext(Context):
             else:
                 return dict(result=False, msg=f'입력한 거래소 {exchange}가 Context Trade Info에 없습니다.')
         else:
-            logger.info("입력한 거래소명이 Trade_info에 존재하지 않습니다.")
-            quit()
+            logger.info(f'잘 못된 거래소명을 입력하셨습니다. {exchange}')
+            sys.exit()
+
+
+    def make_exchange(self, exchange, start_date, end_date, init_budget, currency_list, interval_list, fiat,
+                      slippage_rate, use_data, data_path):
+        if exchange == 'upbit':
+            from coza.exchange import UpbitBacktest
+            exchange = UpbitBacktest(
+                start_date=start_date, end_date=end_date, init_budget=init_budget, currency_list=currency_list,
+                interval_list=interval_list, fiat=fiat, slippage_rate=slippage_rate, use_data=use_data, data_path=data_path)
+        elif exchange == 'coinone':
+            from coza.exchange import CoinoneBacktest
+            exchange = CoinoneBacktest(
+                start_date=start_date, end_date=end_date, init_budget=init_budget, currency_list=currency_list,
+                interval_list=interval_list, fiat=fiat, slippage_rate=slippage_rate, use_data=use_data, data_path=data_path)
+
+        return exchange
 
 
     def backtest(self, exchange):

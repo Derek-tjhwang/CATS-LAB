@@ -1,3 +1,4 @@
+import pandas as pd
 import requests
 import hmac
 import hashlib
@@ -161,10 +162,15 @@ class CoinoneAPIWrapper(BaseAPIWrapper):
 			return self.get_error_message(resp)
 		else:
 			resp = resp.json()
-		return {
-			'bids': [(lambda x: {'price': int(float(x['price'])), 'quantity': float(x['qty'])})(x) for x in resp.get('bid')][:limit],
-			'asks': [(lambda x: {'price': int(float(x['price'])), 'quantity': float(x['qty'])})(x) for x in resp.get('ask')][:limit]
-		}
+
+		orderbook_dict = {'ask_price': list(), 'ask_quantity': list(), 'bid_price': list(), 'bid_quantity': list()}
+		for i in resp['ask'][:limit]:
+			for k, v in i.items():
+				orderbook_dict['ask_{}'.format('quantity' if k == 'qty' else k)].append(float(v))
+		for i in resp['bid'][:limit]:
+			for k, v in i.items():
+				orderbook_dict['bid_{}'.format('quantity' if k =='qty' else k)].append(float(v))
+		return {'orderbook': pd.DataFrame(orderbook_dict), }
 
 	@private_api
 	def validate_api_key(self):
