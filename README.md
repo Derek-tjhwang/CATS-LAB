@@ -3,8 +3,8 @@
 ## How to Use
 ```
 $ git clone {REPOSITORY}
-$ cd CATS-LAB
-$ python setup.py sdist
+$ cd CATS-LAB/archive
+$ pip install {CATSLAB tar.gz}
 ```
 
 
