@@ -4,7 +4,7 @@
 ```
 $ git clone {REPOSITORY}
 $ cd CATS-LAB/archive
-$ pip install {CATSLAB tar.gz}
+$ pip install {COZA tar.gz}
 ```
 
 
