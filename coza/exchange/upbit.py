@@ -4,7 +4,7 @@ from coza.api.exchange import UpbitAPI
 from coza.api import TradeApi, ExchangeApi, CandleApi
 from coza.errors import InputValueValidException
 from coza.objects import Order
-from coza.utils import truncate, now, KST
+from coza.utils import truncate, KST
 from coza.logger import logger
 from copy import deepcopy
 from collections import defaultdict
@@ -24,30 +24,53 @@ R_OFF = 8
 
 
 class UpbitTrade(TradeBase):
-    def __init__(self, api_key, secret_key, init_budget, currency_list, interval_list, fiat,
-                 running_mode='LIVE', using_api='EXCHANGE'):
-
-        self.api_key = api_key
-        self.secret_key = secret_key
+    def __init__(self, api_key, secret_key, init_budget, currency_list, interval_list, fiat, use_data, data_path,
+                 running_mode='LIVE', using_api='CATSLAB'):
+        if running_mode == 'LOCAL':
+            if isinstance(api_key, str):
+                self.api_key = api_key
+            else:
+                raise InputValueValidException(msg='Upbit Init', api_key=api_key)
+                
+            if isinstance(secret_key, str):
+                self.secret_key = secret_key
+            else:
+                raise InputValueValidException(msg='Upbit Init', secret_key=secret_key)
+        if using_api == 'EXCHANGE':
+            self.api = UpbitAPI(api_key=self.api_key, secret_key=self.secret_key)
+        
         self.running_mode = running_mode
-        self.using_api = using_api
+        if using_api in ('EXCHANGE', 'CATSLAB'):
+            self.using_api = using_api
+        else:
+            raise InputValueValidException(msg='Upbit Init', using_api=using_api)
 
-        super().__init__(name=NAME, init_budget=init_budget, currency_list=currency_list, interval_list=interval_list,
-                         tz=KST, r_off=R_OFF, fiat=fiat)
+        super().__init__(
+            name=NAME, init_budget=init_budget, currency_list=currency_list, interval_list=interval_list,
+            use_data=use_data, data_path=data_path, tz=KST, r_off=R_OFF, fiat=fiat)
         self.init_balance()
         self.data = dict()
         self.orders = defaultdict(list)
         self.uptime = 0.0
         self.delay_time = 0.0
         self.order_list = {f'{currency}': dict() for currency in currency_list}
-        self.api = UpbitAPI(api_key=self.api_key, secret_key=self.secret_key)
-
+        
         try:
-            markets = self.api.get_markets()
+            if self.using_api == 'EXCHANGE':
+                markets = self.api.get_markets()
+            elif self.using_api == 'CATSLAB':
+                markets = ExchangeApi.get_markets()
+                
             self.market_table = {f'{currency}': {'id': f'{self.fiat.upper()}-{currency.upper()}'} for currency in currency_list}
             for currency in self.market_table.keys():
                 if self.market_table[currency]['id'] in list(markets[self.fiat.upper()]['market']):
-                    order_chance = self.api.get_order_chance(market_id=self.market_table[currency]['id'])
+                    if self.using_api == 'EXCHANGE':
+                        order_chance = self.api.get_order_chance(market_id=self.market_table[currency]['id'])
+                    elif self.using_api == 'CATSLAB':
+                        order_chance = TradeApi.order_chance(
+                            {
+                                'market_id':self.market_table[currency]['id']
+                            })
                     self.market_table[currency]['ask_fee'] = float(order_chance.get('ask_fee'))
                     self.market_table[currency]['bid_fee'] = float(order_chance.get('bid_fee'))
                     logger.info('ask_fee of {} : {}'.format(currency, self.market_table[currency]['ask_fee']))
@@ -153,7 +176,7 @@ class UpbitTrade(TradeBase):
         update_type = "ORDER"
 
         if order.order_type == 'BUY':
-            if self.balance['fiat'] - order.price * order.quantity < 0:
+            if round(order.price * order.quantity * (1 + self.market_table[currency]['bid_fee']), R_OFF) > self.balance['fiat']:
                 logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Lack of Balance\' : {order}')
                 return dict(error='Bigger than fiat')
             elif order.quantity * order.price < MINIMUM_TRADE_PRICE.get(order.currency, 500):
@@ -472,7 +495,7 @@ class UpbitTrade(TradeBase):
                         price = ExchangeApi.get_orderbook(exchange=NAME, currency=k)['orderbook']['bid_price'][0]
                     self._send_order(
                         Order(
-                            currency=k, order_type='SELL', fiat=self.fiat, price=price, quantity=self.balance[k]['balance'])
+                            exchange=NAME, currency=k, order_type='SELL', fiat=self.fiat, price=price, quantity=self.balance[k]['balance'])
                     )
                 except Exception as e:
                     logger.critical(msg=e)
@@ -668,7 +691,7 @@ class UpbitBacktest(BacktestBase):
 
 
     def _send_order(self, order, _datetime=None):
-        if order.price * order.quantity < MINIMUM_TRADE_PRICE:
+        if order.price * order.quantity < MINIMUM_TRADE_PRICE.get(order.currency, 500):
             logger.debug(f'[ORDER_FAILED] Failed to send order because of \'Minimum Trade Price\' : {order}')
             return dict(error='Lower than minimum trade price')
         else:

@@ -68,14 +68,14 @@ class BacktestContext(Context):
 
         if backtest_type is not None:
             backtest_type = backtest_type.lower()
-            if backtest_type.lower() in ('d', 'w', 'm'):
+            if backtest_type.lower() in ('day', 'week', 'month'):
                 self.backtest_type = backtest_type
                 end_date = now(exchange=exchange, rounding_seconds=True) - timedelta(minutes=1)
-                if backtest_type == 'd':
+                if backtest_type == 'day':
                     start_date = end_date - timedelta(days=1)
-                elif backtest_type == 'w':
+                elif backtest_type == 'week':
                     start_date = end_date - timedelta(days=7)
-                elif backtest_type == 'm':
+                elif backtest_type == 'month':
                     start_date = end_date - timedelta(days=30)
             else:
                 raise InputValueValidException(msg='at run', backtest_type=backtest_type)
@@ -164,7 +164,7 @@ class BacktestContext(Context):
         if self.running_mode == 'LIVE':
             if BacktestApi.user_uuid is not None:
                 result_data = dict(
-                    model_id=self.model_info['id'], created_time=created_time.strftime("%Y-%m-%d %H:%M"),
+                    model_id=self.model_info['id'], exchange=exchange.name, created_time=created_time.strftime("%Y-%m-%d %H:%M"),
                     backtest_type=self.backtest_type, start_date=exchange.start_date.strftime("%Y-%m-%d %H:%M"),
                     end_date=exchange.end_date.strftime("%Y-%m-%d %H:%M"), init_budget=exchange.init_budget,
                     final_balance=estimated_dict.get('estimated'), total_fee=exchange.total_fee, total_slippage=exchange.total_slippage,
@@ -215,7 +215,7 @@ class BacktestContext(Context):
         return self.exchanges[exchange].get_time()
 
     def get_estimated(self, exchange):
-        return self.exchanges[exchange].get_estimated()
+        return self.exchanges[exchange].calc_estimated()
 
     def clear_balance(self, exchange):
         return self.exchanges[exchange].clear_balance()

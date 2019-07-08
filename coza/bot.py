@@ -1,5 +1,4 @@
-from apscheduler.schedulers.blocking import  BlockingScheduler
-from coza.algorithms import load_functions
+from apscheduler.schedulers.blocking import BlockingScheduler
 from coza.errors import InputValueValidException
 from coza.objects import Context
 from coza.logger import logger
@@ -10,8 +9,9 @@ from coza.utils import now
 
 class BotContext(Context):
     def __init__(
-            self, user_uuid = None, bot_id=None, api_key=None, secret_key=None,init_budget=None, exchange=None, initialize=None, run_strategy=None,
-            make_orders=None, running_mode='LOCAL', running_type='SERVICE', using_api='EXCHANGE', **kwargs):
+            self, initialize, run_strategy, make_orders, user_uuid=None, bot_id=None, api_key=None, secret_key=None,
+            init_budget=None, exchange=None, running_mode='LOCAL', running_type='SERVICE', using_api='EXCHANGE',
+            use_data='LOCAL', data_path='/data'):
         super().__init__(
             initialize=initialize, run_strategy=run_strategy, make_orders=make_orders, running_mode=running_mode)
 
@@ -23,6 +23,8 @@ class BotContext(Context):
         self.context = dict()
         self.exchanges = dict()
         self.running_stat = 't'
+        self.api_key = api_key
+        self.secret_key = secret_key
 
         if self.running_mode == 'LIVE':
             if isinstance(user_uuid, str):
@@ -35,13 +37,7 @@ class BotContext(Context):
                 raise InputValueValidException(msg='at init', bot_id=bot_id)
 
             TradeApi.initialize(user_uuid=self.user_uuid, bot_id=self.bot_id)
-
             self.bot_info = TradeApi.bot_info()
-            self._bot_code = TradeApi.bot_code()
-            exchange_key = TradeApi.get_user_excAcnt(self.bot_info.get('exchange_account').get('uuid'))
-            self.api_key = exchange_key.get('api_key')
-            self.secret_key = exchange_key.get('secret_key')
-            self.initialize, self.run_strategy, self.make_orders = load_functions(self._bot_code)
 
             if callable(self.initialize):
                 self.initialize(self)
@@ -57,12 +53,11 @@ class BotContext(Context):
             pass
 
         elif self.running_mode == 'LOCAL':
-            self.api_key = api_key
-            self.secret_key = secret_key
-            self.init_budget = init_budget
-            self.initialize = initialize
-            self.run_strategy = run_strategy
-            self.make_orders = make_orders
+            if not isinstance(self.api_key, str):
+                raise InputValueValidException(msg='at init', api_key=api_key)
+            if not isinstance(self.secret_key, str):
+                raise InputValueValidException(msg='at init', secret_key=secret_key)
+                
             if callable(self.initialize):
                 self.initialize(self)
             else:
@@ -71,18 +66,12 @@ class BotContext(Context):
 
             if safety_setting is not None:
                 self.safety = Safety(safety_setting, init_budget)
+            
             self.exchange = exchange
-
-        if not isinstance(self.api_key, str):
-            raise InputValueValidException(msg='at init', api_key=api_key)
-        if not isinstance(self.secret_key, str):
-            raise InputValueValidException(msg='at init', secret_key=secret_key)
+            self.init_budget = init_budget
+                
         if not isinstance(self.init_budget, (int, float)):
             raise InputValueValidException(msg='at init', init_budget=init_budget)
-        # if not(callable(run_strategy)):
-        #     raise InputValueValidException(msg='at init', run_strategy=run_strategy)
-        # if not(callable(make_orders)):
-        #     raise InputValueValidException(msg='at init', make_orders=make_orders)
 
         if self.exchange in ('coinone', 'upbit'):
             try:
@@ -92,21 +81,22 @@ class BotContext(Context):
                     self.exchanges['coinone'] = CoinoneTrade(
                         api_key=self.api_key, secret_key=self.secret_key, init_budget=self.init_budget,
                         currency_list=trade_info.get('currency'), interval_list=trade_info.get('interval'),
-                        fiat=trade_info.get('fiat'), running_mode=self.running_mode, using_api=using_api)
+                        fiat=trade_info.get('fiat'), running_mode=self.running_mode, using_api=using_api,
+                        use_data=use_data, data_path=data_path)
                 elif self.exchange == 'upbit':
                     from coza.exchange import UpbitTrade
                     trade_info = self.context['trade_info']['upbit']
                     self.exchanges['upbit'] = UpbitTrade(
                         api_key=self.api_key, secret_key=self.secret_key, init_budget=self.init_budget,
                         currency_list=trade_info.get('currency'), interval_list=trade_info.get('interval'),
-                        fiat=trade_info.get('fiat'), running_mode=self.running_mode, using_api=using_api)
+                        fiat=trade_info.get('fiat'), running_mode=self.running_mode, using_api=using_api,
+                        use_data=use_data, data_path=data_path)
             except KeyError as e:
                 logger.error(f'정의되지 않은 key 입니다. {e}')
                 self._exit(msg=f'Exchange not define context. {e}')
             except Exception as e:
                 logger.error(f'Exchange not define context. {e}')
                 self._exit(msg=f'Exchange not define context. {e}')
-
         else:
             logger.debug(f"지원하지 않는 거래소 입니다. {self.exchange}")
             self._exit(msg=f'지원하지 않는 거래소 입니다. {self.exchange}')
@@ -202,7 +192,7 @@ class BotContext(Context):
         return self.exchanges[exchange].get_time()
 
     def get_estimated(self, exchange):
-        return self.exchanges[exchange].get_estimated()
+        return self.exchanges[exchange].calc_estimated()
 
     def clear_balance(self, exchange):
         return self.exchanges[exchange].clear_balance()

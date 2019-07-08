@@ -80,7 +80,7 @@ class Result(object):
                                    yaxis='y{}'.format(i+2)))
 
         layout_list = []
-        layout = go.Layout(title='{} Result'.format(self.test_name),
+        layout = go.Layout(title='Backtest Result',
                            width=1000,
                            xaxis=dict(domain=[0, 1]))
 
@@ -198,20 +198,40 @@ class Result(object):
 
 
     def _mdd(self):
-        max_earning_rate = self.estimated_list[0]['estimated']
-        min_earning_rate = self.estimated_list[0]['estimated']
+        dd_list = []
+        cur_high = None
+        cur_low = None
 
-        for _dict in self.estimated_list:
-            if _dict['estimated'] > max_earning_rate:
-                max_earning_rate = _dict['estimated']
-            if _dict['estimated'] < min_earning_rate:
-                min_earning_rate = _dict['estimated']
+        estimated_li = []
+        for item in self.estimated_list:
+            estimated_li.append(item['estimated'])
 
-        if max_earning_rate != 0:
-            MDD = (max_earning_rate - min_earning_rate) / max_earning_rate * 100
-            return round(MDD, 2)
+        for value in estimated_li:
+            if cur_high is None:
+                cur_high = value
+            elif cur_low is None:
+                if cur_high >= value:
+                    cur_low = value
+                elif cur_high < value:
+                    cur_high = value
+            else:
+                if cur_high < value:
+                    dd = (cur_high - cur_low)/cur_high * 100
+                    dd_list.append(dd)
+                    cur_high = value
+                    cur_low = None
+                elif cur_low > value:
+                    cur_low = value
+
+        if len(dd_list) == 0:
+            if cur_high is not None and cur_low is not None:
+                mdd = round((cur_high - cur_low)/cur_high * 100, 2)
+            else:
+                mdd = 0.0
         else:
-            return 0
+            mdd = round(max(dd_list), 2)
+
+        return mdd
 
 
     def _sharpe_ratio(self):

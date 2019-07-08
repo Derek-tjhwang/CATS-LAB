@@ -4,7 +4,7 @@ from coza.api.exchange import CoinoneAPIWrapper
 from coza.api import CandleApi, ExchangeApi, TradeApi
 from coza.errors import InputValueValidException
 from coza.objects import Order
-from coza.utils import truncate, now, KST
+from coza.utils import truncate, KST
 from coza.logger import logger
 from copy import deepcopy
 from collections import defaultdict
@@ -48,16 +48,21 @@ R_OFF = 7
 
 class CoinoneTrade(TradeBase):
     fee_rate=FEE_RATE
-    def __init__(self, api_key, secret_key, init_budget, currency_list, interval_list,
-                 fiat, running_mode='LIVE', using_api='EXCHANGE'):
-        if isinstance(api_key, str):
-            self.api_key = api_key
-        else:
-            raise InputValueValidException(msg='Coinone Init', api_key=api_key)
-        if isinstance(secret_key, str):
-            self.secret_key = secret_key
-        else:
-            raise InputValueValidException(msg='Coinone Init', secret_key=secret_key)
+    def __init__(self, api_key, secret_key, init_budget, currency_list, interval_list, fiat, use_data, data_path,
+                 running_mode='LIVE', using_api='CATSLAB'):
+        if running_mode == 'LOCAL':
+            if isinstance(api_key, str):
+                self.api_key = api_key
+            else:
+                raise InputValueValidException(msg='Coinone Init', api_key=api_key)
+                
+            if isinstance(secret_key, str):
+                self.secret_key = secret_key
+            else:
+                raise InputValueValidException(msg='Coinone Init', secret_key=secret_key)
+        if using_api == 'EXCHANGE':
+            self.api = CoinoneAPIWrapper(api_key=self.api_key, secret_key=self.secret_key)
+            
         self.running_mode = running_mode
         if set(currency_list) != set(currency_list) & CURRENCY_LIST:
             raise InputValueValidException(msg='Coinone Init', currency=currency_list)
@@ -72,7 +77,7 @@ class CoinoneTrade(TradeBase):
 
         super().__init__(
             name=NAME, init_budget=init_budget, currency_list=currency_list, interval_list=interval_list,
-            tz=KST, r_off=R_OFF, fiat=fiat)
+            use_data=use_data, data_path=data_path, tz=KST, r_off=R_OFF, fiat=fiat)
         self.init_balance()
         self.data = dict()
         self.orders = defaultdict(list)
@@ -80,8 +85,7 @@ class CoinoneTrade(TradeBase):
         self.delay_time = 0.0
         self.fee_rate = FEE_RATE
         self.order_list = {f'{currency}': dict() for currency in currency_list}
-        self.api = CoinoneAPIWrapper(api_key=self.api_key, secret_key=self.secret_key)
-
+        
 
     def update_balance(self):
 
@@ -109,7 +113,7 @@ class CoinoneTrade(TradeBase):
                         'quantity': stat_re.get('qty'),
                         'order_type': order.order_type,
                         'fiat': order.fiat,
-                        'timestamp': [stat_re.get('timestamp')],
+                        'datetime': [datetime.fromtimestamp(int(stat_re.get('timestamp')))],
                         'remain_qty': stat_re.get('qty'),
                         'fee': round(stat_re.get('qty') * FEE_RATE, R_OFF) if order.order_type == 'BUY' else
                         math.ceil(int(stat_re.get('qty') * stat_re.get('price')) * FEE_RATE)
@@ -123,20 +127,20 @@ class CoinoneTrade(TradeBase):
                     if c_order.get('result') == 'success' or c_order.get('result'):
                         pop_q = set()
                         for order_id in self.order_list[currency].keys():
-                            recent_timestamp = self.order_list[currency][order_id].get('timestamp')[-1]
+                            recent_datetime = self.order_list[currency][order_id].get('datetime')[-1]
                             c_order_list = c_order.get('info') if 'info' in c_order else c_order.get('completeOrders')
                             for _order in c_order_list:
-                                if recent_timestamp > int(_order.get('timestamp')):
+                                if recent_datetime > datetime.fromtimestamp(int(_order.get('timestamp'))):
                                     break
 
                                 elif order_id == _order.get('orderId').lower() and \
-                                        recent_timestamp != int(_order.get('timestamp')):
+                                        recent_datetime != datetime.fromtimestamp(int(_order.get('timestamp'))):
                                     _o = {
                                         'fee': float(_order.get('fee')),
                                         'order_id': _order.get('orderId').lower(),
                                         'price': int(float(_order.get('price'))),
                                         'qty': float(_order.get('qty')),
-                                        'timestamp': int(_order.get('timestamp')),
+                                        'datetime': datetime.fromtimestamp(int(_order.get('timestamp'))),
                                         'type': 'SELL' if _order.get('type') == 'ask' else 'BUY'
                                     }
                                     self.order_list[currency][order_id]['fee'] -= _o.get('fee')
@@ -157,7 +161,7 @@ class CoinoneTrade(TradeBase):
                                             order_type='BUY', price=_o.get('price'), quantity=_o.get('qty'),
                                             use_balance=0, avail=_o.get('qty') - _o.get('fee'), balance=0)
 
-                                    self.order_list[currency][order_id]['timestamp'].append(_o.get('timestamp'))
+                                    self.order_list[currency][order_id]['datetime'].append(_o.get('datetime'))
                                     if self.order_list[currency][order_id]['remain_qty'] == 0:
                                         if _o.get('type') == 'SELL':
                                             self.balance['fiat'] += self.order_list[currency][order_id].get('fee')
@@ -298,10 +302,10 @@ class CoinoneTrade(TradeBase):
                     'quantity': stat_re.get('qty'),
                     'order_type': order.order_type,
                     'fiat': order.fiat,
-                    'timestamp': [stat_re.get('timestamp')],
+                    'datetime': [datetime.fromtimestamp(int(stat_re.get('timestamp')))],
                     'remain_qty': stat_re.get('qty'),
                     'fee': round(stat_re.get('qty') * FEE_RATE, R_OFF) if order.order_type == 'BUY' else
-                    math.ceil(int(stat_re.get('qty') * stat_re.get('price')) * FEE_RATE)
+                    round(int(stat_re.get('qty') * stat_re.get('price')) * FEE_RATE, R_OFF)
                 }
 
                 if order.order_type == 'SELL':
@@ -384,9 +388,9 @@ class CoinoneTrade(TradeBase):
             else:
                 if qty < remainQty:
                     quantity_c = truncate(round(qty, R_OFF), 4)
-                    if (remainQty - quantity_c) * order_c['price'] < MINIMUM_TRADE_PRICE:
-                        logger.debug(f'[ORDER_CANCEL_FAILED] Failed to cancel order because of \'Minimum Trade Price\' {order_id} : {order_c}')
-                        return False
+#                     if (remainQty - quantity_c) * order_c['price'] < MINIMUM_TRADE_PRICE:
+#                         logger.debug(f'[ORDER_CANCEL_FAILED] Failed to cancel order because of \'Minimum Trade Price\' {order_id} : {order_c}')
+#                         return False
                 else:
                     quantity_c = remainQty
             try:
@@ -544,12 +548,12 @@ class CoinoneTrade(TradeBase):
             else:
                 try:
                     if self.using_api == 'EXCHANGE':
-                        price = self.api.get_orderbook(currency=k, fiat=self.fiat, limit=30)['bids'][0]['price']
+                        price = self.api.get_orderbook(currency=k, fiat=self.fiat, limit=30)['orderbook']['bid_price'][0]
                     elif self.using_api == 'CATSLAB':
                         price = ExchangeApi.get_orderbook(exchange=NAME, currency=k)['orderbook']['bid_price'][0]
                     self._send_order(
                         Order(
-                            currency=k, order_type='SELL', fiat=self.fiat, price=price, quantity=self.balance[k]['balance'])
+                            exchange=NAME, currency=k, order_type='SELL', fiat=self.fiat, price=price, quantity=self.balance[k]['balance'])
                     )
                 except Exception as e:
                     logger.error(msg=e)
@@ -625,7 +629,7 @@ class CoinoneBacktest(BacktestBase):
             5: 288,
             15: 120,
             30: 120,
-            60: 120,
+            60: 720,
             120: 150,
             240: 150,
             1440: 180
@@ -639,7 +643,6 @@ class CoinoneBacktest(BacktestBase):
 
         if self.use_data == 'LOCAL':
             path = f'{self.data_path}/{NAME}'
-            files = os.listdir(path)
 
         for currency in self.currencies:
             for interval in self.intervals:
@@ -725,8 +728,8 @@ class CoinoneBacktest(BacktestBase):
                 elif order_t <= df_datetime:
                     for order in self.orders[order_t]:
                         result = self._send_order(order, order_t)
-                        if not result.get('result'):
-                            print("Order Fail MSG: {}".format(result.get('msg')))
+                        if result.get('error'):
+                            logger.debug("Order Fail MSG: {}".format(result.get('msg')))
                         pop_q.add(order_t)
 
         for i in pop_q:

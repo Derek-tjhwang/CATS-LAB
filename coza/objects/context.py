@@ -9,7 +9,7 @@ import sys
 class Context(ABC):
 
 
-    def __init__(self, initialize=None, run_strategy=None, make_orders=None, running_mode='LOCAL'):
+    def __init__(self, initialize, run_strategy, make_orders, running_mode='LOCAL'):
         if running_mode.upper() not in ('LOCAL', 'LIVE'):
             raise InputValueValidException(msg='at init', running_mode=running_mode)
         else:

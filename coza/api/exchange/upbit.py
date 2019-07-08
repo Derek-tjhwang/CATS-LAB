@@ -1,13 +1,12 @@
 import requests
 import time
 import jwt
-import math
 import re
 import pandas as pd
 
 from collections import defaultdict
 from urllib.parse import urlencode
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 class UpbitAPI:

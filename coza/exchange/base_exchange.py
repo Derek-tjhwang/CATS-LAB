@@ -5,15 +5,16 @@ from coza.objects import Order
 from coza.errors import InputValueValidException
 from coza.logger import logger
 from datetime import datetime, timedelta
-from collections import defaultdict
 from time import sleep
 
+import pandas as pd
 import numpy as np
+import os
 import sys
 
 
 class TradeBase(ABC):
-    def __init__(self, name, init_budget, currency_list, interval_list, tz, r_off, fiat=None):
+    def __init__(self, name, init_budget, currency_list, interval_list, use_data, data_path, tz, r_off, fiat=None):
         self.name=name
         self.fiat=fiat
         self.tz = tz
@@ -23,6 +24,8 @@ class TradeBase(ABC):
         self.init_budget = init_budget
         self.currencies = tuple(currency_list)
         self.intervals = tuple(interval_list)
+        self.use_data = use_data
+        self.data_path = data_path
 
     def init_dataframe(self):
         logger.debug('Initializing dataframe...')
@@ -30,14 +33,24 @@ class TradeBase(ABC):
         time_now = now(exchange=self.name, rounding_seconds=True)
         until_date = {interval: time_now - timedelta(minutes=interval) for interval in self.intervals}
 
+        if self.use_data == 'LOCAL':
+            path = f'{self.data_path}/candles/{self.name}/{self.fiat}'
+
         for currency in self.currencies:
             for interval in self.intervals:
-                try:
-                    df = CandleApi.get_df(
-                        exchange=self.name, currency=currency, fiat=self.fiat, interval=interval, until_date=until_date[interval]
-                    )
-                except Exception as e:
-                    self.exit(msg=e,stop_bot=True)
+                if self.use_data == 'LIVE':
+                    try:
+                        df = CandleApi.get_df(
+                            exchange=self.name, currency=currency, fiat=self.fiat, interval=interval, until_date=until_date[interval])
+                    except Exception as e:
+                        self.exit(msg=e,stop_bot=True)
+
+                elif self.use_data == 'LOCAL':
+                    filename = f'{currency}_{interval}.csv'
+                    try:
+                        df = pd.read_csv(os.path.join(path, filename)).sort_values(by=['timestamp'])
+                    except FileNotFoundError:
+                        logger.debug(f'{currency}_{interval}.csv 파일이 존재하지 않습니다.')
 
                 if df is not None:
                     df['datetime'] = [datetime.fromtimestamp(t).astimezone(self.tz) for t in df['timestamp']]
@@ -55,6 +68,9 @@ class TradeBase(ABC):
     def update_dataframe(self):
         decay_time = 0.0
         cur_date = now(exchange=self.name, rounding_seconds=True)
+        
+        if self.use_data == 'LOCAL':
+            path = f'{self.data_path}/candles/{self.name}/{self.fiat}'
 
         while decay_time > -0.8:
             sleep_time = round(0.3 * np.random.rand() + 0.7, 3) + self.delay_time - decay_time
@@ -64,16 +80,24 @@ class TradeBase(ABC):
                 get_candle = False
                 currency, interval = candle.split('_')
                 interval = int(interval)
-
-                if interval * 60 - ((cur_date - self.data[candle].index[-1]).total_seconds() - interval * 60) <= 0:
+                last_date = self.data[candle].index[-1]
+                
+                if interval * 60 - ((cur_date - last_date).total_seconds() - interval * 60) <= 0:
                     get_candle = True
 
                 if get_candle:
-                    df = CandleApi.get_df(
-                        exchange=self.name, currency=currency, fiat=self.fiat, interval=interval,
-                        from_date=self.data[candle].index[-1])
+                    if self.use_data == 'LIVE':
+                        df = CandleApi.get_df(
+                            exchange=self.name, currency=currency, fiat=self.fiat, interval=interval,
+                            from_date=last_date)
+                        
+                    elif self.use_data == 'LOCAL':
+                        filename = f'{candle}.csv'
+                        df = pd.read_csv(os.path.join(path, filename)).sort_values(by=['timestamp'])
+                        df = df.loc[df[df['timestamp']>=self.data[candle]['timestamp'].loc[last_date]].index[0]:]
+                        
                     update_len = len(df) - 1
-
+            
                     if update_len < 1:
                         logger.debug(self.data[candle].tail(3))
                         logger.debug(f'Failed to update dataframe of {candle} at {self.data[candle].index[-1]}')

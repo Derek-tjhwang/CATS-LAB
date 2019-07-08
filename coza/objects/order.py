@@ -12,7 +12,7 @@ class Order(object):
         self.currency = str(currency).lower()
         self.fiat = str(fiat).lower()
         self.price = float(price)
-        self.quantity = math.floor(round(quantity * 10**FLOOR_TABLE[self.exchange], 1)) / (10**FLOOR_TABLE[self.exchange])
+        self.quantity = math.floor(round(quantity * 10**FLOOR_TABLE[self.exchange], 4)) / (10**FLOOR_TABLE[self.exchange])
         self.is_safety = bool(is_safety)
 
     def __repr__(self):
