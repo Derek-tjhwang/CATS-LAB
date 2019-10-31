@@ -9,7 +9,7 @@ setup(name='coza',
       license='GPL3',
       packages=find_packages(),
       install_requires=[
-          'requests==2.18.4',
+          'requests==2.20.0',
           'numpy==1.14.0',
           'pandas==0.20.3',
           'APScheduler==3.5.1',
