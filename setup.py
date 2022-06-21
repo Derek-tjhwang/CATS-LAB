@@ -10,7 +10,7 @@ setup(name='coza',
       packages=find_packages(),
       install_requires=[
           'requests==2.18.4',
-          'numpy==1.14.0',
+          'numpy==1.22.0',
           'pandas==0.20.3',
           'APScheduler==3.5.1',
           'beautifultable==0.5.2',
